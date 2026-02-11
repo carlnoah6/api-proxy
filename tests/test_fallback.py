@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-
 from fastapi.responses import JSONResponse
 
 from .mock_upstream import mock_app, mock_state, reset_mock_state
