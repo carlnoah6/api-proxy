@@ -128,7 +128,7 @@ async def pick_tier(client: httpx.AsyncClient, requested_model: str) -> Optional
         if health_cache.is_available(requested_tier.get("health_key", requested_model), min_remaining):
             return None  # Original model is fine
     else:
-        return None  # Non-antigravity models don't have health check
+        return None  # Non-upstream models don't have health check
 
     # Requested model is low → find fallback
     for i, tier in enumerate(tiers):
@@ -140,7 +140,7 @@ async def pick_tier(client: httpx.AsyncClient, requested_model: str) -> Optional
                 log.info(f"⚡ Fallback: {requested_model} → {tier['model']} (quota low)")
                 return tier
         else:
-            log.info(f"⚡ Fallback: {requested_model} → {tier['model']} (all antigravity exhausted)")
+            log.info(f"⚡ Fallback: {requested_model} → {tier['model']} (all upstream tiers exhausted)")
             return tier
 
     return None

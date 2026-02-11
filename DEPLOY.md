@@ -1,58 +1,58 @@
-# API Proxy 部署与上线流程
+# API Proxy Deployment Guide
 
-## 架构概览
+## Architecture Overview
 
-- **代理端口**: 8180 (API Key 鉴权层)
-- **上游端口**: 8080 (Antigravity/OpenClaw)
-- **服务管理**: systemd (`api-proxy.service`)
-- **代码位置**: `/home/ubuntu/api-proxy/server.py`
+- **Proxy port**: 8180 (API Key authentication layer)
+- **Upstream port**: 8080 (Upstream LLM Provider / OpenClaw)
+- **Service management**: systemd (`api-proxy.service`)
+- **Code location**: `/home/ubuntu/api-proxy/server.py`
 
 ---
 
-## 修改前备份
+## Pre-Change Backup
 
 ```bash
-# 备份当前代码
+# Backup current code
 cp /home/ubuntu/api-proxy/server.py /home/ubuntu/api-proxy/server.py.bak
 
-# 备份配置（keys 等）
+# Backup configuration (keys, etc.)
 cp /home/ubuntu/api-proxy/keys.json /home/ubuntu/api-proxy/keys.json.bak
 
-# 带时间戳备份（推荐）
+# Timestamped backup (recommended)
 cp /home/ubuntu/api-proxy/server.py "/home/ubuntu/api-proxy/server.py.bak.$(date +%Y%m%d_%H%M%S)"
 ```
 
 ---
 
-## 测试方法
+## Testing
 
-### Health Check（上游连通性）
+### Health Check (upstream connectivity)
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-预期：返回 JSON，`status: "ok"`，所有账号 available。
+Expected: Returns JSON with `status: "ok"`, all accounts available.
 
-### 模型列表（鉴权 + 代理功能）
+### Model List (auth + proxy functionality)
 
 ```bash
 curl http://localhost:8180/v1/models -H "x-api-key: <YOUR_API_KEY>"
 ```
 
-预期：返回模型列表 JSON。
+Expected: Returns model list JSON.
 
-### Admin 接口
+### Admin Endpoints
 
 ```bash
-# Fallback 状态
+# Fallback status
 curl -H "x-api-key: sk-admin-luna2026" http://localhost:8180/admin/fallback
 
-# 日用量
+# Daily usage
 curl -H "x-api-key: sk-admin-luna2026" http://localhost:8180/admin/usage/daily
 ```
 
-### 完整功能测试（发送请求）
+### Full Functionality Test (send a request)
 
 ```bash
 curl -X POST http://localhost:8180/v1/messages \
@@ -67,28 +67,28 @@ curl -X POST http://localhost:8180/v1/messages \
 
 ---
 
-## 上线步骤
+## Deployment Steps
 
-### 常规重启（代码修改后）
+### Standard Restart (after code changes)
 
 ```bash
 sudo systemctl restart api-proxy
 ```
 
-### 验证
+### Verification
 
 ```bash
-# 1. 检查服务状态
+# 1. Check service status
 systemctl status api-proxy
 
 # 2. Health check
 curl http://localhost:8080/health
 
-# 3. 功能验证
+# 3. Functional verification
 curl http://localhost:8180/v1/models -H "x-api-key: <YOUR_API_KEY>"
 ```
 
-### 查看启动日志
+### View Startup Logs
 
 ```bash
 journalctl -u api-proxy --no-pager -n 30
@@ -96,72 +96,72 @@ journalctl -u api-proxy --no-pager -n 30
 
 ---
 
-## 回滚方案
+## Rollback Plan
 
-### 方法 1: 恢复备份文件
+### Method 1: Restore Backup File
 
 ```bash
-# 恢复代码
+# Restore code
 cp /home/ubuntu/api-proxy/server.py.bak /home/ubuntu/api-proxy/server.py
 
-# 重启服务
+# Restart service
 sudo systemctl restart api-proxy
 
-# 验证
+# Verify
 systemctl status api-proxy
 curl http://localhost:8080/health
 ```
 
-### 方法 2: Git 回滚（如果使用 Git）
+### Method 2: Git Rollback
 
 ```bash
 cd /home/ubuntu/api-proxy
-git log --oneline -5          # 查看最近提交
-git checkout <commit> -- server.py  # 恢复特定版本
+git log --oneline -5          # View recent commits
+git checkout <commit> -- server.py  # Restore specific version
 sudo systemctl restart api-proxy
 ```
 
 ---
 
-## 日志查看
+## Log Viewing
 
 ```bash
-# 实时跟踪日志
+# Follow logs in real time
 journalctl -u api-proxy -f
 
-# 查看最近 N 行
+# View last N lines
 journalctl -u api-proxy --no-pager -n 50
 
-# 查看今天的日志
+# View today's logs
 journalctl -u api-proxy --since today
 
-# 查看特定时间段
+# View specific time range
 journalctl -u api-proxy --since "2026-02-11 00:00" --until "2026-02-11 23:59"
 
-# 只看错误
+# View errors only
 journalctl -u api-proxy -p err --no-pager
 ```
 
 ---
 
-## 服务管理命令速查
+## Service Management Quick Reference
 
-| 操作 | 命令 |
-|------|------|
-| 启动 | `sudo systemctl start api-proxy` |
-| 停止 | `sudo systemctl stop api-proxy` |
-| 重启 | `sudo systemctl restart api-proxy` |
-| 状态 | `systemctl status api-proxy` |
-| 开机自启 | `sudo systemctl enable api-proxy` |
-| 禁用自启 | `sudo systemctl disable api-proxy` |
-| 查看日志 | `journalctl -u api-proxy -f` |
-| 重载配置 | `sudo systemctl daemon-reload` |
+| Action | Command |
+|--------|---------|
+| Start | `sudo systemctl start api-proxy` |
+| Stop | `sudo systemctl stop api-proxy` |
+| Restart | `sudo systemctl restart api-proxy` |
+| Status | `systemctl status api-proxy` |
+| Enable on boot | `sudo systemctl enable api-proxy` |
+| Disable on boot | `sudo systemctl disable api-proxy` |
+| View logs | `journalctl -u api-proxy -f` |
+| Reload config | `sudo systemctl daemon-reload` |
 
 ---
 
-## 注意事项
+## Notes
 
-- 服务配置了 `Restart=on-failure`，崩溃后 5 秒自动重启
-- 服务配置了 `PYTHONUNBUFFERED=1`，日志实时输出不缓冲
-- 修改 service 文件后需要 `sudo systemctl daemon-reload`
-- 旧的 nohup 启动方式已废弃，统一使用 systemctl 管理
+- Service is configured with `Restart=on-failure`, auto-restarts after 5 seconds on crash
+- Service is configured with `PYTHONUNBUFFERED=1`, logs are output in real time without buffering
+- After modifying the service file, run `sudo systemctl daemon-reload`
+- Legacy nohup startup method is deprecated; use systemctl for all service management

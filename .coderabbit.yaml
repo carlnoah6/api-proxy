@@ -1,0 +1,20 @@
+# CodeRabbit configuration
+# Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_instructions:
+    - path: "src/**/*.py"
+      instructions: "Review for security issues, error handling, and Python best practices."
+    - path: "tests/**/*.py"
+      instructions: "Ensure tests are comprehensive and follow pytest conventions."
+
+chat:
+  auto_reply: true
