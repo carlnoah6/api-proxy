@@ -1,11 +1,11 @@
 """Admin endpoints for key management, usage stats, and fallback status"""
 import json
 import os
+import urllib.request
 from datetime import datetime
 
-import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 
 from .auth import create_api_key, load_keys, require_admin, save_keys
 from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, SGT
@@ -245,7 +245,6 @@ async def oauth_callback_get(code: str = None, state: str = None):
     if not code:
         return {"status": "ok"}
 
-    import urllib.request
     # Get app_access_token
     req = urllib.request.Request(
         "https://open.larksuite.com/open-apis/auth/v3/app_access_token/internal",
