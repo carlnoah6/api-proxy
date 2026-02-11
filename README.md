@@ -3,106 +3,120 @@
 [![CI](https://github.com/carlnoah6/api-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/carlnoah6/api-proxy/actions/workflows/ci.yml)
 [![Deploy](https://github.com/carlnoah6/api-proxy/actions/workflows/deploy.yml/badge.svg)](https://github.com/carlnoah6/api-proxy/actions/workflows/deploy.yml)
 
-> Code location: `/home/ubuntu/api-proxy/server.py`
-> Ports: **8180** (proxy layer) → **8080** (upstream LLM provider)
-> Status: ✅ Running in production
+> **Status**: ✅ Running in production (Docker)
+> **Port**: 8180
+
+API Proxy is a FastAPI application that acts as a middleware between OpenClaw and upstream LLM providers. It handles authentication, usage tracking, and smart model fallback.
 
 ## Architecture
 
+The system is deployed as a Docker container, sitting between the main OpenClaw agent and the upstream provider (e.g., a local LLM runner or another proxy).
+
+```mermaid
+graph LR
+    OpenClaw[OpenClaw Agent] -->|Request| Proxy[api-proxy Container :8180]
+    Proxy -->|Forward| Upstream[Upstream Provider :8080]
+    Upstream -->|API| Claude[Claude/Gemini API]
 ```
-OpenClaw → api-proxy (8180) → Upstream LLM Provider (8080) → Claude/Gemini API
-```
 
-API Proxy is a FastAPI application that sits in front of the upstream LLM provider, providing:
-- **API Key Authentication**: One key per user with independent usage tracking
-- **Smart Fallback**: Proactively monitors model quotas and auto-switches when limits are reached
-- **Usage Statistics**: Multi-dimensional tracking by key/day/hour/model
-- **Format Conversion**: Anthropic ↔ OpenAI format conversion (supports streaming)
-- **OAuth Callbacks**: Handles Lark calendar authorization + card action callbacks
+**Key Features:**
+- **API Key Authentication**: Independent usage tracking per key.
+- **Smart Fallback**: Monitors upstream model quotas and auto-switches when limits are reached.
+- **Usage Statistics**: Tracks token usage by key, day, hour, and model.
+- **Format Conversion**: Handles Anthropic/OpenAI format differences.
 
-## Common Commands
+> **Note**: Webhook handling has been migrated to `webhook-gateway`. This service no longer processes raw webhooks.
 
-### Start / Restart
+## Deployment (Docker)
+
+The service is deployed using Docker Compose.
+
+### 1. Start / Update
 
 ```bash
-# Check running processes
-ps aux | grep api-proxy
+# Pull latest image and start in background
+docker compose pull && docker compose up -d
+```
 
-# Restart
-kill $(pgrep -f "api-proxy/server.py")
-nohup python3 /home/ubuntu/api-proxy/server.py > /home/ubuntu/api-proxy/server.log 2>&1 &
+### 2. View Logs
+
+```bash
+# Follow container logs
+docker compose logs -f
+```
+
+### 3. Configuration
+
+Configuration is managed via `docker-compose.yml`, environment variables, and mounted JSON files.
+
+**Environment Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `UPSTREAM_URL` | `http://host.docker.internal:8080` | URL of the upstream LLM provider |
+| `KEYS_FILE` | `/app/keys.json` | Path to the keys file inside container |
+| `FALLBACK_CONFIG` | `/app/fallback.json` | Path to fallback config inside container |
+
+**Volumes:**
+
+- `./keys.json` -> `/app/keys.json` (Read/Write): Stores API keys and usage data.
+- `./fallback.json` -> `/app/fallback.json` (Read-Only): Defines fallback chains.
+
+## Development
+
+### Local Testing
+
+To run tests locally:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests
+pytest
+```
+
+### Code Structure (`src/`)
+
+- `app.py`: Main FastAPI entrypoint and route definitions.
+- `auth.py`: API key validation and management.
+- `proxy.py`: Request forwarding and response handling.
+- `fallback.py`: Logic for switching models upon failure/quota limits.
+- `usage.py`: Usage tracking and statistics recording.
+- `health.py`: Upstream health checks.
+- `config.py`: Configuration loading.
+
+## API Documentation
+
+### Admin Endpoints
+
+Manage keys and view statistics via HTTP requests. Requires the Admin API Key.
+
+**Base URL**: `http://localhost:8180`
+
+```bash
+export ADMIN_KEY="sk-admin-luna2026"
+
+# Check Fallback Status (Model availability & quotas)
+curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/fallback
+
+# View Daily Usage (Breakdown by model)
+curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage/daily
+
+# List All Keys
+curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys
+
+# Create New Key
+curl -X POST -H "x-api-key: $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"name": "NewUser"}' http://localhost:8180/admin/keys
+
+# Disable a Key
+curl -X POST -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/disable
 ```
 
 ### Health Check
 
 ```bash
-# Proxy layer health
+# Service health
 curl http://localhost:8180/health
-
-# Upstream LLM provider health (includes per-model quota details)
-curl http://localhost:8080/health
 ```
-
-### Admin Endpoints (requires Admin Key)
-
-```bash
-ADMIN_KEY="sk-admin-luna2026"
-
-# View fallback status (per-model quotas + availability)
-curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/fallback
-
-# List all API keys
-curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys
-
-# View total usage
-curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage
-
-# Daily usage stats (with model breakdown)
-curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage/daily
-
-# Hourly usage stats
-curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage/hourly
-
-# Detailed usage for a specific key
-curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/usage
-
-# Create a new key
-curl -X POST -H "x-api-key: $ADMIN_KEY" -H "Content-Type: application/json" \
-  -d '{"name": "NewUser"}' http://localhost:8180/admin/keys
-
-# Disable / Enable a key
-curl -X POST -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/disable
-curl -X POST -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/enable
-```
-
-## Configuration Files
-
-| File | Description |
-|------|-------------|
-| `server.py` | Main service code |
-| `keys.json` | API key data (includes usage stats) |
-| `fallback.json` | Fallback chain configuration |
-| `server.log` | Runtime log |
-
-## Fallback Logic
-
-1. Background thread polls upstream `/health` every 30s, caching per-model quotas
-2. On incoming request, checks target model quota; if < 5%, auto-switches to next available tier
-3. Quota aggregation: iterates all upstream accounts, takes the max remaining quota per model
-4. Reactive fallback: even if proactive check passes, if upstream returns 429/503/exhausted, attempts to switch
-
-## Known Issues & Fix Log
-
-### 2026-02-11: Multi-account Quota Aggregation Bug
-- **Issue**: `HealthCache.poll()` only read `accounts[0]`, ignoring subsequent accounts
-- **Fix**: Changed to iterate all accounts, taking the max `remainingFraction` per model
-- **Impact**: Newly added account (carlnoah6) quota was not recognized, causing Claude to be incorrectly judged as 0% and triggering fallback
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `UPSTREAM_URL` | `http://localhost:8080` | Upstream LLM provider address |
-| `PROXY_PORT` | `8180` | Proxy listening port |
-| `KEYS_FILE` | `/home/ubuntu/api-proxy/keys.json` | Key data file |
-| `FALLBACK_CONFIG` | `/home/ubuntu/api-proxy/fallback.json` | Fallback configuration file |
