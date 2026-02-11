@@ -5,39 +5,18 @@ on:
     branches: [main]
 
 jobs:
-  deploy-dev:
-    name: Deploy to Dev
+  deploy-docker:
+    name: Deploy via Docker
     runs-on: self-hosted
     steps:
-      - name: Pull latest code
+      - name: Pull and deploy
         run: |
           cd /home/ubuntu/api-proxy
-          git fetch origin main
-          git reset --hard origin/main
+          docker compose pull
+          docker compose up -d
+          sleep 5
 
-      - name: Restart dev service
-        run: |
-          sudo systemctl restart api-proxy-dev
-          sleep 3
-
-      - name: Smoke test dev
-        run: |
-          cd /home/ubuntu/api-proxy
-          bash scripts/smoke-test.sh 8181
-        env:
-          SMOKE_TEST_KEY: sk-dev-test-key
-
-  deploy-prod:
-    name: Deploy to Production
-    runs-on: self-hosted
-    needs: deploy-dev
-    steps:
-      - name: Restart production service
-        run: |
-          sudo systemctl restart api-proxy
-          sleep 3
-
-      - name: Smoke test production
+      - name: Smoke test
         run: |
           cd /home/ubuntu/api-proxy
           bash scripts/smoke-test.sh 8180
