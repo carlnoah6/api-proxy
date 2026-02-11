@@ -109,14 +109,14 @@ async def _try_reactive_fallback(
             continue
 
         is_avail = False
-        if tier["type"] == "antigravity":
+        if tier["type"] in ("antigravity", "upstream"):
             is_avail = health_cache.is_available(tier.get("health_key", tier["model"]))
         else:
             is_avail = True
 
         if is_avail:
             log.info(f"⚡ Reactive fallback ({error_status}): {requested_model} → {tier['model']}")
-            if tier["type"] == "antigravity":
+            if tier["type"] in ("antigravity", "upstream"):
                 req_data["model"] = tier["model"]
                 new_body = json.dumps(req_data).encode()
 
@@ -198,7 +198,7 @@ async def proxy(request: Request, path: str, key_info: dict = Depends(require_ap
         fallback_tier = await pick_tier(client, requested_model)
 
         if fallback_tier:
-            if fallback_tier["type"] != "antigravity":
+            if fallback_tier["type"] not in ("antigravity", "upstream"):
                 return await call_external_tier(
                     fallback_tier, req_data, is_stream, key_info, requested_model)
             else:
