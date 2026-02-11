@@ -1,4 +1,4 @@
-"""Unit tests for API Proxy server"""
+"""Unit tests for API Proxy server (modular structure)"""
 import json
 import os
 import sys
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-# We need to set env vars before importing server
-# Use a temp keys file for tests
+# ── Test data ──
+
 TEST_KEYS = {
     "admin_key": "sk-admin-test-key",
     "keys": {
@@ -43,19 +43,13 @@ TEST_KEYS = {
 }
 
 
-@pytest.fixture
-def temp_keys_file(tmp_path):
-    """Create a temp keys.json for testing"""
+@pytest.fixture(autouse=True)
+def setup_env(tmp_path):
+    """Set up test environment before importing modules"""
     keys_file = tmp_path / "keys.json"
     keys_file.write_text(json.dumps(TEST_KEYS, indent=2))
-    return keys_file
-
-
-@pytest.fixture
-def temp_fallback_file(tmp_path):
-    """Create a temp fallback.json for testing"""
-    fb = tmp_path / "fallback.json"
-    fb.write_text(json.dumps({
+    fb_file = tmp_path / "fallback.json"
+    fb_file.write_text(json.dumps({
         "enabled": True,
         "health_poll_interval_seconds": 30,
         "min_remaining_fraction": 0.05,
@@ -63,162 +57,154 @@ def temp_fallback_file(tmp_path):
             {"name": "Test Tier", "model": "test-model", "type": "antigravity", "health_key": "test-model"}
         ]
     }))
-    return fb
 
-
-@pytest.fixture
-def server_module(temp_keys_file, temp_fallback_file):
-    """Import server module with test config"""
-    os.environ["KEYS_FILE"] = str(temp_keys_file)
-    os.environ["FALLBACK_CONFIG"] = str(temp_fallback_file)
+    os.environ["KEYS_FILE"] = str(keys_file)
+    os.environ["FALLBACK_CONFIG"] = str(fb_file)
     os.environ["PROXY_PORT"] = "19999"
 
-    # Remove cached module if exists
-    if "server" in sys.modules:
-        del sys.modules["server"]
+    # Clear cached modules so config reloads
+    for mod_name in list(sys.modules.keys()):
+        if mod_name.startswith("src"):
+            del sys.modules[mod_name]
 
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    import server
-    yield server
-
-    # Cleanup
+    yield
     sys.path.pop(0)
-    if "server" in sys.modules:
-        del sys.modules["server"]
 
 
-# ── Key Authentication Tests ─────────────────────────
+# ── Key Authentication Tests ──
 
 
 class TestKeyAuth:
-    def test_load_keys(self, server_module):
-        data = server_module.load_keys()
+    def test_load_keys(self):
+        from src.auth import load_keys
+        data = load_keys()
         assert "admin_key" in data
         assert data["admin_key"] == "sk-admin-test-key"
         assert "sk-test-user1" in data["keys"]
 
-    def test_get_key_info_valid(self, server_module):
-        info = server_module.get_key_info("sk-test-user1")
+    def test_get_key_info_valid(self):
+        from src.auth import get_key_info
+        info = get_key_info("sk-test-user1")
         assert info is not None
         assert info["name"] == "Test User 1"
         assert info["enabled"] == 1
 
-    def test_get_key_info_invalid(self, server_module):
-        info = server_module.get_key_info("sk-nonexistent-key")
+    def test_get_key_info_invalid(self):
+        from src.auth import get_key_info
+        info = get_key_info("sk-nonexistent-key")
         assert info is None
 
-    def test_get_key_info_disabled(self, server_module):
-        info = server_module.get_key_info("sk-test-disabled")
+    def test_get_key_info_disabled(self):
+        from src.auth import get_key_info
+        info = get_key_info("sk-test-disabled")
         assert info is not None
         assert info["enabled"] == 0
 
 
-# ── Usage Recording Tests ────────────────────────────
+# ── Usage Recording Tests ──
 
 
 class TestUsageRecording:
-    def test_record_usage(self, server_module):
-        server_module.record_usage("sk-test-user1", 100, 50, "test-model")
-        data = server_module.load_keys()
+    def test_record_usage(self):
+        from src.auth import load_keys
+        from src.usage import record_usage
+        record_usage("sk-test-user1", 100, 50, "test-model")
+        data = load_keys()
         usage = data["keys"]["sk-test-user1"]["usage"]
         assert usage["total_input"] == 100
         assert usage["total_output"] == 50
         assert usage["total_requests"] == 1
         assert usage["last_used"] is not None
 
-    def test_record_usage_accumulates(self, server_module):
-        server_module.record_usage("sk-test-user1", 100, 50, "test-model")
-        server_module.record_usage("sk-test-user1", 200, 100, "test-model")
-        data = server_module.load_keys()
+    def test_record_usage_accumulates(self):
+        from src.auth import load_keys
+        from src.usage import record_usage
+        record_usage("sk-test-user1", 100, 50, "test-model")
+        record_usage("sk-test-user1", 200, 100, "test-model")
+        data = load_keys()
         usage = data["keys"]["sk-test-user1"]["usage"]
         assert usage["total_input"] == 300
         assert usage["total_output"] == 150
         assert usage["total_requests"] == 2
 
-    def test_record_usage_by_model(self, server_module):
-        server_module.record_usage("sk-test-user1", 100, 50, "model-a")
-        server_module.record_usage("sk-test-user1", 200, 100, "model-b")
-        data = server_module.load_keys()
+    def test_record_usage_by_model(self):
+        from src.auth import load_keys
+        from src.usage import record_usage
+        record_usage("sk-test-user1", 100, 50, "model-a")
+        record_usage("sk-test-user1", 200, 100, "model-b")
+        data = load_keys()
         total_by_model = data["keys"]["sk-test-user1"]["usage"]["total_by_model"]
         assert "model-a" in total_by_model
         assert "model-b" in total_by_model
         assert total_by_model["model-a"]["requests"] == 1
         assert total_by_model["model-b"]["requests"] == 1
 
-    def test_record_usage_nonexistent_key(self, server_module):
-        # Should not raise
-        server_module.record_usage("sk-nonexistent", 100, 50, "test-model")
-        data = server_module.load_keys()
+    def test_record_usage_nonexistent_key(self):
+        from src.auth import load_keys
+        from src.usage import record_usage
+        record_usage("sk-nonexistent", 100, 50, "test-model")
+        data = load_keys()
         assert "sk-nonexistent" not in data["keys"]
 
 
-# ── Format Conversion Tests ──────────────────────────
+# ── Format Conversion Tests ──
 
 
 class TestFormatConversion:
-    def test_anthropic_to_openai_basic(self, server_module):
+    def test_anthropic_to_openai_basic(self):
+        from src.proxy import anthropic_to_openai
         body = {
             "model": "test-model",
-            "messages": [
-                {"role": "user", "content": "Hello"}
-            ],
+            "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100
         }
-        result = server_module.anthropic_to_openai(body)
+        result = anthropic_to_openai(body)
         assert result["model"] == "test-model"
         assert len(result["messages"]) == 1
         assert result["messages"][0]["role"] == "user"
         assert result["messages"][0]["content"] == "Hello"
         assert result["max_tokens"] == 100
 
-    def test_anthropic_to_openai_with_system(self, server_module):
+    def test_anthropic_to_openai_with_system(self):
+        from src.proxy import anthropic_to_openai
         body = {
             "model": "test-model",
             "system": "You are helpful",
-            "messages": [
-                {"role": "user", "content": "Hello"}
-            ],
+            "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100
         }
-        result = server_module.anthropic_to_openai(body)
+        result = anthropic_to_openai(body)
         assert len(result["messages"]) == 2
         assert result["messages"][0]["role"] == "system"
         assert result["messages"][0]["content"] == "You are helpful"
 
-    def test_anthropic_to_openai_content_blocks(self, server_module):
+    def test_anthropic_to_openai_content_blocks(self):
+        from src.proxy import anthropic_to_openai
         body = {
             "model": "test-model",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Hello"},
-                        {"type": "text", "text": "World"}
-                    ]
-                }
-            ],
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Hello"},
+                    {"type": "text", "text": "World"}
+                ]
+            }],
             "max_tokens": 100
         }
-        result = server_module.anthropic_to_openai(body)
+        result = anthropic_to_openai(body)
         assert result["messages"][0]["content"] == "Hello\nWorld"
 
-    def test_openai_to_anthropic_basic(self, server_module):
+    def test_openai_to_anthropic_basic(self):
+        from src.proxy import openai_to_anthropic
         resp_data = {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "Hello there!"
-                    },
-                    "finish_reason": "stop"
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5
-            }
+            "choices": [{
+                "message": {"role": "assistant", "content": "Hello there!"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5}
         }
-        result = server_module.openai_to_anthropic(resp_data, "test-model")
+        result = openai_to_anthropic(resp_data, "test-model")
         assert result["type"] == "message"
         assert result["role"] == "assistant"
         assert result["model"] == "test-model"
@@ -227,40 +213,46 @@ class TestFormatConversion:
         assert result["content"][0]["text"] == "Hello there!"
 
 
-# ── Fallback Config Tests ────────────────────────────
+# ── Fallback Config Tests ──
 
 
 class TestFallbackConfig:
-    def test_load_fallback_config(self, server_module):
-        config = server_module.load_fallback_config()
+    def test_load_fallback_config(self):
+        from src.fallback import load_fallback_config
+        config = load_fallback_config()
         assert config["enabled"] is True
         assert len(config["tiers"]) > 0
         assert config["tiers"][0]["name"] == "Test Tier"
 
-    def test_health_cache_init(self, server_module):
-        cache = server_module.HealthCache()
+    def test_health_cache_init(self):
+        from src.fallback import HealthCache
+        cache = HealthCache()
         assert cache.models == {}
         assert cache.last_poll == 0
 
-    def test_health_cache_get_remaining_unknown(self, server_module):
-        cache = server_module.HealthCache()
+    def test_health_cache_get_remaining_unknown(self):
+        from src.fallback import HealthCache
+        cache = HealthCache()
         remaining = cache.get_remaining("unknown-model")
-        assert remaining == -1  # Unknown models return -1
+        assert remaining == -1
 
-    def test_health_cache_is_available_unknown(self, server_module):
-        cache = server_module.HealthCache()
+    def test_health_cache_is_available_unknown(self):
+        from src.fallback import HealthCache
+        cache = HealthCache()
         available = cache.is_available("unknown-model")
-        assert available is True  # Unknown models assumed available
+        assert available is True
 
 
-# ── Health Endpoint Test ─────────────────────────────
+# ── Health Endpoint Test ──
 
 
 class TestHealthEndpoint:
     @pytest.mark.asyncio
-    async def test_health_endpoint(self, server_module):
+    async def test_health_endpoint(self):
         from fastapi.testclient import TestClient
-        client = TestClient(server_module.app)
+
+        from src.app import app
+        client = TestClient(app)
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
