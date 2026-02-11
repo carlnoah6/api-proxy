@@ -26,7 +26,6 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -m py_compile server.py
           find src -name '*.py' -exec python -m py_compile {} +
 
       - name: Lint with ruff
