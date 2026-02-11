@@ -1,4 +1,5 @@
 """Admin endpoints for key management, usage stats, and fallback status"""
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -10,6 +11,11 @@ from fastapi.responses import JSONResponse
 from .auth import create_api_key, load_keys, require_admin, save_keys
 from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, SGT
 from .fallback import health_cache, load_fallback_config
+
+DASHBOARD_REFRESH_SCRIPT = os.getenv(
+    "DASHBOARD_REFRESH_SCRIPT",
+    "/home/ubuntu/.openclaw/workspace/scripts/lark-task-dashboard.py"
+)
 
 # ── Key Management ──
 
@@ -250,6 +256,29 @@ async def oauth_callback_post(request: Request):
     if isinstance(body.get("header"), dict):
         event_type = body["header"].get("event_type", "")
     if event_type.startswith("card.action.trigger"):
+        # Extract action value
+        event = body.get("event") or {}
+        action = event.get("action") if isinstance(event, dict) else {}
+        action_value = action.get("value", {}) if isinstance(action, dict) else {}
+
+        # Special handling: refresh dashboard (bypass LLM)
+        if isinstance(action_value, dict) and action_value.get("action") == "refresh_dashboard":
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "python3", DASHBOARD_REFRESH_SCRIPT,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(proc.communicate(), timeout=15)
+                return JSONResponse(content={
+                    "toast": {"type": "success", "content": "Refreshed"}
+                })
+            except Exception as e:
+                return JSONResponse(content={
+                    "toast": {"type": "error", "content": f"Refresh failed: {str(e)[:50]}"}
+                })
+
+        # Other card actions: forward to OpenClaw as before
         try:
             client: httpx.AsyncClient = request.app.state.client
             resp = await client.post(
