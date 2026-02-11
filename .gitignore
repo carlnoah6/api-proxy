@@ -15,6 +15,7 @@ keys.json
 keys-dev.json
 fallback.json
 fallback-dev.json
+webhook_secret.txt
 
 # Backups
 *.bak
