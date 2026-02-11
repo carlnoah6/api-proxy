@@ -12,7 +12,8 @@ jobs:
       - name: Pull latest code
         run: |
           cd /home/ubuntu/api-proxy
-          git pull origin main
+          git fetch origin main
+          git reset --hard origin/main
 
       - name: Restart dev service
         run: |
