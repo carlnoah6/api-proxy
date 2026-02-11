@@ -6,6 +6,7 @@ saves events to files for Luna to process during heartbeat.
 import hashlib
 import hmac
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -17,8 +18,14 @@ from .config import log
 
 router = APIRouter()
 
-SECRET_FILE = Path(__file__).resolve().parent.parent / "webhook_secret.txt"
-EVENT_DIR = Path("/home/ubuntu/.openclaw/workspace/data/ci-events")
+SECRET_FILE = Path(os.environ.get(
+    "WEBHOOK_SECRET_FILE",
+    str(Path(__file__).resolve().parent.parent / "webhook_secret.txt")
+))
+EVENT_DIR = Path(os.environ.get(
+    "CI_EVENT_DIR",
+    "/home/ubuntu/.openclaw/workspace/data/ci-events"
+))
 
 # Workflow names that count as "deploy" (case-insensitive)
 DEPLOY_WORKFLOWS = {"deploy", "deployment", "release"}
