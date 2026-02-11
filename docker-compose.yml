@@ -1,0 +1,20 @@
+services:
+  api-proxy:
+    image: ghcr.io/carlnoah6/api-proxy:latest
+    container_name: api-proxy
+    restart: unless-stopped
+    ports:
+      - "8180:8180"
+    volumes:
+      # keys.json must be rw — usage tracking writes back to it
+      - ./keys.json:/app/keys.json:rw
+      - ./fallback.json:/app/fallback.json:ro
+      - ./webhook_secret.txt:/app/webhook_secret.txt:ro
+    environment:
+      - UPSTREAM_URL=http://host.docker.internal:8080
+      - KEYS_FILE=/app/keys.json
+      - FALLBACK_CONFIG=/app/fallback.json
+      - WEBHOOK_SECRET_FILE=/app/webhook_secret.txt
+      - CI_EVENT_DIR=/app/ci-events
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
