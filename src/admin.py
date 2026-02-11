@@ -290,7 +290,7 @@ async def oauth_callback_get(code: str = None, state: str = None):
         with open(LARK_TOKEN_FILE, "w") as f:
             json.dump(token_data.get("data", {}), f, indent=2)
         from fastapi.responses import HTMLResponse
-        return HTMLResponse("✅ 授权成功！Luna 已获得日历访问权限。你可以关闭这个页面了。")
+        return HTMLResponse("✅ Authorization successful! Calendar access has been granted. You can close this page now.")
     else:
         from fastapi.responses import HTMLResponse
-        return HTMLResponse(f"❌ 授权失败：{json.dumps(token_data, ensure_ascii=False)}")
+        return HTMLResponse(f"❌ Authorization failed: {json.dumps(token_data, ensure_ascii=False)}")

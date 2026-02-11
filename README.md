@@ -1,105 +1,108 @@
 # API Proxy (Luna API Proxy)
 
-> 代码位置: `/home/ubuntu/api-proxy/server.py`
-> 端口: **8180** (代理层) → **8080** (Antigravity 上游)
-> 状态: ✅ 生产运行中
+[![CI](https://github.com/carlnoah6/api-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/carlnoah6/api-proxy/actions/workflows/ci.yml)
+[![Deploy](https://github.com/carlnoah6/api-proxy/actions/workflows/deploy.yml/badge.svg)](https://github.com/carlnoah6/api-proxy/actions/workflows/deploy.yml)
 
-## 架构
+> Code location: `/home/ubuntu/api-proxy/server.py`
+> Ports: **8180** (proxy layer) → **8080** (upstream LLM provider)
+> Status: ✅ Running in production
+
+## Architecture
 
 ```
-OpenClaw → api-proxy (8180) → Antigravity (8080) → Claude/Gemini API
+OpenClaw → api-proxy (8180) → Upstream LLM Provider (8080) → Claude/Gemini API
 ```
 
-API Proxy 是一个 FastAPI 应用，在 Antigravity（Google Cloud Code 代理）前面加了一层，提供：
-- **API Key 鉴权**：每个用户一个 Key，独立统计用量
-- **智能 Fallback**：主动感知各模型额度，到限额自动切换
-- **用量统计**：按 Key/日/小时/模型 多维度统计
-- **格式转换**：Anthropic ↔ OpenAI 格式互转（支持流式）
-- **OAuth 回调**：处理 Lark 日历授权 + 卡片按钮回调
+API Proxy is a FastAPI application that sits in front of the upstream LLM provider, providing:
+- **API Key Authentication**: One key per user with independent usage tracking
+- **Smart Fallback**: Proactively monitors model quotas and auto-switches when limits are reached
+- **Usage Statistics**: Multi-dimensional tracking by key/day/hour/model
+- **Format Conversion**: Anthropic ↔ OpenAI format conversion (supports streaming)
+- **OAuth Callbacks**: Handles Lark calendar authorization + card action callbacks
 
-## 常用命令
+## Common Commands
 
-### 启动/重启
+### Start / Restart
 
 ```bash
-# 查看进程
+# Check running processes
 ps aux | grep api-proxy
 
-# 重启
+# Restart
 kill $(pgrep -f "api-proxy/server.py")
 nohup python3 /home/ubuntu/api-proxy/server.py > /home/ubuntu/api-proxy/server.log 2>&1 &
 ```
 
-### 健康检查
+### Health Check
 
 ```bash
-# 代理层健康
+# Proxy layer health
 curl http://localhost:8180/health
 
-# 上游 Antigravity 健康（含各模型额度详情）
+# Upstream LLM provider health (includes per-model quota details)
 curl http://localhost:8080/health
 ```
 
-### 管理接口（需要 Admin Key）
+### Admin Endpoints (requires Admin Key)
 
 ```bash
 ADMIN_KEY="sk-admin-luna2026"
 
-# 查看 Fallback 状态（各模型额度 + 可用性）
+# View fallback status (per-model quotas + availability)
 curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/fallback
 
-# 查看所有 API Key
+# List all API keys
 curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys
 
-# 查看总用量
+# View total usage
 curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage
 
-# 按日统计（含模型维度）
+# Daily usage stats (with model breakdown)
 curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage/daily
 
-# 按小时统计
+# Hourly usage stats
 curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage/hourly
 
-# 某个 Key 的详细用量
+# Detailed usage for a specific key
 curl -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/usage
 
-# 创建新 Key
+# Create a new key
 curl -X POST -H "x-api-key: $ADMIN_KEY" -H "Content-Type: application/json" \
   -d '{"name": "NewUser"}' http://localhost:8180/admin/keys
 
-# 停用/启用 Key
+# Disable / Enable a key
 curl -X POST -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/disable
 curl -X POST -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/enable
 ```
 
-## 配置文件
+## Configuration Files
 
-| 文件 | 说明 |
-|------|------|
-| `server.py` | 主服务代码 |
-| `keys.json` | API Key 数据（含用量统计） |
-| `fallback.json` | Fallback 链配置 |
-| `server.log` | 运行日志 |
+| File | Description |
+|------|-------------|
+| `server.py` | Main service code |
+| `keys.json` | API key data (includes usage stats) |
+| `fallback.json` | Fallback chain configuration |
+| `server.log` | Runtime log |
 
-## Fallback 逻辑
+## Fallback Logic
 
-1. 后台每 30s 轮询 Antigravity `/health`，缓存各模型额度
-2. 请求进来时检查目标模型额度，< 5% 则自动切换到下一个可用 tier
-3. 额度聚合：遍历所有 Antigravity 账户，取每个模型的最大剩余额度
-4. 响应式 Fallback：即使主动检查通过，如果上游返回 429/503/exhausted，也会尝试切换
+1. Background thread polls upstream `/health` every 30s, caching per-model quotas
+2. On incoming request, checks target model quota; if < 5%, auto-switches to next available tier
+3. Quota aggregation: iterates all upstream accounts, takes the max remaining quota per model
+4. Reactive fallback: even if proactive check passes, if upstream returns 429/503/exhausted, attempts to switch
 
-## 已知问题 & 修复记录
+## Known Issues & Fix Log
 
-### 2026-02-11: 多账户额度聚合 Bug
-- **问题**: `HealthCache.poll()` 只读 `accounts[0]`，忽略后续账户
-- **修复**: 改为遍历所有账户，取每个模型的最大 `remainingFraction`
-- **影响**: 新加的账户（carlnoah6）额度未被识别，导致 Claude 一直误判为 0% 触发 fallback
+### 2026-02-11: Multi-account Quota Aggregation Bug
+- **Issue**: `HealthCache.poll()` only read `accounts[0]`, ignoring subsequent accounts
+- **Fix**: Changed to iterate all accounts, taking the max `remainingFraction` per model
+- **Impact**: Newly added account (carlnoah6) quota was not recognized, causing Claude to be incorrectly judged as 0% and triggering fallback
 
-## 环境变量
+## Environment Variables
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `UPSTREAM_URL` | `http://localhost:8080` | Antigravity 上游地址 |
-| `PROXY_PORT` | `8180` | 代理监听端口 |
-| `KEYS_FILE` | `/home/ubuntu/api-proxy/keys.json` | Key 数据文件 |
-| `FALLBACK_CONFIG` | `/home/ubuntu/api-proxy/fallback.json` | Fallback 配置文件 |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `UPSTREAM_URL` | `http://localhost:8080` | Upstream LLM provider address |
+| `PROXY_PORT` | `8180` | Proxy listening port |
+| `KEYS_FILE` | `/home/ubuntu/api-proxy/keys.json` | Key data file |
+| `FALLBACK_CONFIG` | `/home/ubuntu/api-proxy/fallback.json` | Fallback configuration file |
