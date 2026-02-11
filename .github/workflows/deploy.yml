@@ -23,6 +23,8 @@ jobs:
         run: |
           cd /home/ubuntu/api-proxy
           bash scripts/smoke-test.sh 8181
+        env:
+          SMOKE_TEST_KEY: sk-dev-test-key
 
   deploy-prod:
     name: Deploy to Production

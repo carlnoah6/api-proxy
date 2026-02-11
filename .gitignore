@@ -20,6 +20,7 @@ fallback-dev.json
 *.bak
 *.broken
 *.bak.*
+*.pre-refactor
 
 # Logs
 server.log
