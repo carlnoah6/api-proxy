@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "health_poll_interval_seconds": 30,
+  "min_remaining_fraction": 0.05,
+  "tiers": [
+    {
+      "name": "Claude Opus 4.6",
+      "model": "claude-opus-4-6-thinking",
+      "type": "antigravity",
+      "health_key": "claude-opus-4-6-thinking"
+    },
+    {
+      "name": "Gemini 3 Pro High",
+      "model": "gemini-3-pro-high",
+      "type": "antigravity",
+      "health_key": "gemini-3-pro-high"
+    }
+  ]
+}
