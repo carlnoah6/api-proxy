@@ -124,7 +124,7 @@ async def pick_tier(client: httpx.AsyncClient, requested_model: str) -> Optional
 
     # Check if requested model has quota
     requested_tier = tiers[requested_tier_idx]
-    if requested_tier["type"] == "antigravity":
+    if requested_tier["type"] in ("antigravity", "upstream"):
         if health_cache.is_available(requested_tier.get("health_key", requested_model), min_remaining):
             return None  # Original model is fine
     else:
@@ -135,7 +135,7 @@ async def pick_tier(client: httpx.AsyncClient, requested_model: str) -> Optional
         if i == requested_tier_idx:
             continue
 
-        if tier["type"] == "antigravity":
+        if tier["type"] in ("antigravity", "upstream"):
             if health_cache.is_available(tier.get("health_key", tier["model"]), min_remaining):
                 log.info(f"⚡ Fallback: {requested_model} → {tier['model']} (quota low)")
                 return tier
