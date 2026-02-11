@@ -1,0 +1,40 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest code
+        run: |
+          cd /home/ubuntu/api-proxy
+          git pull origin main
+
+      - name: Restart dev service
+        run: |
+          sudo systemctl restart api-proxy-dev
+          sleep 3
+
+      - name: Smoke test dev
+        run: |
+          cd /home/ubuntu/api-proxy
+          bash scripts/smoke-test.sh 8181
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: self-hosted
+    needs: deploy-dev
+    steps:
+      - name: Restart production service
+        run: |
+          sudo systemctl restart api-proxy
+          sleep 3
+
+      - name: Smoke test production
+        run: |
+          cd /home/ubuntu/api-proxy
+          bash scripts/smoke-test.sh 8180
