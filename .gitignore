@@ -24,7 +24,6 @@ webhook_secret.txt
 *.pre-refactor
 
 # Logs
-server.log
 *.log
 
 # IDE
