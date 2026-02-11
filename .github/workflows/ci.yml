@@ -32,3 +32,6 @@ jobs:
 
       - name: Run unit tests
         run: pytest tests/ -v --tb=short -k "not integration"
+
+      - name: Run fallback tests
+        run: pytest tests/test_fallback.py -v --tb=long
