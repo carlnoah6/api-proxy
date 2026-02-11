@@ -23,7 +23,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Syntax check
-        run: python -m py_compile server.py
+        run: |
+          python -m py_compile server.py
+          for f in src/*.py; do python -m py_compile "$f"; done
 
       - name: Lint with ruff
         run: ruff check . --output-format=github
