@@ -1,21 +1,15 @@
 """Admin endpoints for key management, usage stats, and fallback status"""
-import asyncio
 import json
 import os
 from datetime import datetime
 
 import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 
 from .auth import create_api_key, load_keys, require_admin, save_keys
 from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, SGT
 from .fallback import health_cache, load_fallback_config
-
-DASHBOARD_REFRESH_SCRIPT = os.getenv(
-    "DASHBOARD_REFRESH_SCRIPT",
-    "/home/ubuntu/.openclaw/workspace/scripts/lark-task-dashboard.py"
-)
 
 # ── Key Management ──
 
@@ -246,52 +240,6 @@ async def admin_fallback_status(request: Request):
 # ── OAuth / Lark callbacks ──
 
 
-async def oauth_callback_post(request: Request):
-    """Handle Lark challenge verification AND card action callbacks."""
-    body = await request.json()
-    if "challenge" in body:
-        return {"challenge": body["challenge"]}
-
-    event_type = ""
-    if isinstance(body.get("header"), dict):
-        event_type = body["header"].get("event_type", "")
-    if event_type.startswith("card.action.trigger"):
-        # Extract action value
-        event = body.get("event") or {}
-        action = event.get("action") if isinstance(event, dict) else {}
-        action_value = action.get("value", {}) if isinstance(action, dict) else {}
-
-        # Special handling: refresh dashboard (bypass LLM)
-        if isinstance(action_value, dict) and action_value.get("action") == "refresh_dashboard":
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "python3", DASHBOARD_REFRESH_SCRIPT,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=15)
-                return JSONResponse(content={
-                    "toast": {"type": "success", "content": "Refreshed"}
-                })
-            except Exception as e:
-                return JSONResponse(content={
-                    "toast": {"type": "error", "content": f"Refresh failed: {str(e)[:50]}"}
-                })
-
-        # Other card actions: forward to OpenClaw as before
-        try:
-            client: httpx.AsyncClient = request.app.state.client
-            resp = await client.post(
-                "http://127.0.0.1:18789/webhook/lark",
-                json=body,
-                timeout=5
-            )
-            return JSONResponse(content=resp.json(), status_code=resp.status_code)
-        except Exception as e:
-            return {"status": "error", "detail": str(e)}
-    return {"status": "ok"}
-
-
 async def oauth_callback_get(code: str = None, state: str = None):
     """Handle OAuth callback from Lark"""
     if not code:
@@ -318,8 +266,6 @@ async def oauth_callback_get(code: str = None, state: str = None):
         os.makedirs(os.path.dirname(LARK_TOKEN_FILE), exist_ok=True)
         with open(LARK_TOKEN_FILE, "w") as f:
             json.dump(token_data.get("data", {}), f, indent=2)
-        from fastapi.responses import HTMLResponse
         return HTMLResponse("✅ Authorization successful! Calendar access has been granted. You can close this page now.")
     else:
-        from fastapi.responses import HTMLResponse
         return HTMLResponse(f"❌ Authorization failed: {json.dumps(token_data, ensure_ascii=False)}")

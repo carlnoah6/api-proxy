@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import admin as admin_handlers
 from . import health as health_module
-from . import webhook as webhook_module
 from .auth import require_api_key
 from .config import UPSTREAM, log
 from .fallback import health_cache, load_fallback_config, pick_tier
@@ -372,10 +371,4 @@ app.get("/admin/usage")(admin_handlers.admin_total_usage)
 app.get("/admin/usage/daily")(admin_handlers.admin_daily_usage)
 app.get("/admin/usage/hourly")(admin_handlers.admin_hourly_usage)
 app.get("/admin/fallback")(admin_handlers.admin_fallback_status)
-app.post("/oauth/callback")(admin_handlers.oauth_callback_post)
-app.get("/oauth/callback")(admin_handlers.oauth_callback_get)
 app.get("/health")(health_module.health)
-
-# ── Webhook routes (no auth required) ──
-
-app.include_router(webhook_module.router)
