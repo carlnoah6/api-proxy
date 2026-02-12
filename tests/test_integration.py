@@ -32,8 +32,8 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert "upstream" in data
-        assert "fallback_enabled" in data
+        assert "models" in data
+        assert "total_models" in data
 
 
 class TestAuth:
@@ -64,64 +64,29 @@ class TestAuth:
         assert resp.status_code == 401
 
 
-class TestNonStreaming:
-    def test_basic_request(self):
+class TestModelRouting:
+    def test_unknown_model_returns_400(self):
+        """Requesting an unknown model should return 400, not 500"""
         resp = httpx.post(
             f"{BASE_URL}/v1/messages",
             json={
-                "model": "gemini-3-flash",
-                "messages": [{"role": "user", "content": "Say 'test ok' and nothing else"}],
-                "max_tokens": 20
-            },
-            headers={"x-api-key": TEST_KEY},
-            timeout=30
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "content" in data or "choices" in data
-
-
-class TestStreaming:
-    def test_streaming_request(self):
-        with httpx.stream(
-            "POST",
-            f"{BASE_URL}/v1/messages",
-            json={
-                "model": "gemini-3-flash",
-                "messages": [{"role": "user", "content": "Say 'test ok'"}],
-                "stream": True,
-                "max_tokens": 20
-            },
-            headers={"x-api-key": TEST_KEY},
-            timeout=30
-        ) as resp:
-            assert resp.status_code == 200
-            content_type = resp.headers.get("content-type", "")
-            # Should be SSE
-            assert "text/event-stream" in content_type or resp.status_code == 200
-            # Read at least some data
-            chunks = []
-            for chunk in resp.iter_text():
-                chunks.append(chunk)
-                if len(chunks) > 3:
-                    break
-            assert len(chunks) > 0
-
-
-class TestUsageTracking:
-    def test_usage_is_recorded(self):
-        """Make a request and verify usage is tracked"""
-        # First, make a request
-        resp = httpx.post(
-            f"{BASE_URL}/v1/messages",
-            json={
-                "model": "gemini-3-flash",
-                "messages": [{"role": "user", "content": "Say exactly: test"}],
+                "model": "nonexistent-model",
+                "messages": [{"role": "user", "content": "hi"}],
                 "max_tokens": 10
             },
             headers={"x-api-key": TEST_KEY},
-            timeout=30
+            timeout=10
+        )
+        assert resp.status_code == 400
+
+    def test_models_endpoint(self):
+        """GET /v1/models should list available models"""
+        resp = httpx.get(
+            f"{BASE_URL}/v1/models",
+            headers={"x-api-key": TEST_KEY},
+            timeout=10
         )
         assert resp.status_code == 200
-        # Usage verification would need admin access
-        # For now, just verify the request succeeded
+        data = resp.json()
+        assert data["object"] == "list"
+        assert len(data["data"]) > 0

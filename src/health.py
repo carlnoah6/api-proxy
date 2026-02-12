@@ -1,14 +1,12 @@
 """Health check endpoint"""
-from .config import UPSTREAM
-from .fallback import load_fallback_config
+from .config import get_models_registry
 
 
 async def health():
     """Health check endpoint handler"""
-    config = load_fallback_config()
+    registry = get_models_registry()
     return {
         "status": "ok",
-        "upstream": UPSTREAM,
-        "fallback_enabled": config.get("enabled", True),
-        "tiers": len(config.get("tiers", []))
+        "models": list(registry.keys()),
+        "total_models": len(registry),
     }

@@ -1,15 +1,13 @@
-"""Admin endpoints for key management, usage stats, and fallback status"""
+"""Admin endpoints for key management, usage stats, and model status"""
 import json
 import os
 import urllib.request
-from datetime import datetime
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from .auth import create_api_key, load_keys, require_admin, save_keys
-from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, SGT
-from .fallback import health_cache, load_fallback_config
+from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, get_models_registry
 
 # ── Key Management ──
 
@@ -204,37 +202,25 @@ async def admin_hourly_usage(request: Request, date: str = None):
     return {"hours": result}
 
 
-# ── Fallback Status ──
+# ── Model Status ──
 
 
-async def admin_fallback_status(request: Request):
-    """View fallback status and quota info"""
+async def admin_models_status(request: Request):
+    """View registered models and their configuration"""
     require_admin(request)
-    config = load_fallback_config()
-    await health_cache.poll(request.app.state.client)
+    registry = get_models_registry()
 
-    tiers_status = []
-    for tier in config.get("tiers", []):
-        status = {
-            "name": tier["name"],
-            "model": tier["model"],
-            "type": tier["type"],
-        }
-        if tier["type"] == "antigravity":
-            key = tier.get("health_key", tier["model"])
-            remaining = health_cache.get_remaining(key)
-            status["remaining"] = f"{remaining*100:.0f}%" if remaining >= 0 else "unknown"
-            status["available"] = health_cache.is_available(key, config.get("min_remaining_fraction", 0.05))
-        else:
-            status["remaining"] = "unlimited"
-            status["available"] = True
-        tiers_status.append(status)
+    models = []
+    for model_id, config in registry.items():
+        models.append({
+            "id": model_id,
+            "name": config.get("name", model_id),
+            "format": config["format"],
+            "base_url": config["base_url"],
+            "has_api_key": bool(config.get("api_key")),
+        })
 
-    return {
-        "enabled": config.get("enabled", True),
-        "tiers": tiers_status,
-        "last_health_poll": datetime.fromtimestamp(health_cache.last_poll, SGT).isoformat() if health_cache.last_poll else None
-    }
+    return {"models": models, "total": len(models)}
 
 
 # ── OAuth / Lark callbacks ──
