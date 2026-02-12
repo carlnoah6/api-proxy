@@ -1,1 +1,1 @@
-"""Luna API Proxy - Multi-tenant API proxy with smart fallback"""
+"""Luna API Proxy - Multi-model gateway with usage tracking"""
