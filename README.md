@@ -6,101 +6,103 @@
 > **Status**: ✅ Running in production (Docker)
 > **Port**: 8180
 
-API Proxy is a FastAPI application that acts as a middleware between OpenClaw and upstream LLM providers. It handles authentication, usage tracking, and smart model fallback.
+API Proxy is a FastAPI application that acts as a **multi-model gateway** between clients and upstream LLM providers. It handles authentication, usage tracking, and model-based routing.
 
 ## Architecture
 
-The system is deployed as a Docker container, sitting between the main OpenClaw agent and the upstream provider (e.g., a local LLM runner or another proxy).
-
-```mermaid
-graph LR
-    OpenClaw[OpenClaw Agent] -->|Request| Proxy[api-proxy Container :8180]
-    Proxy -->|Forward| Upstream[Upstream Provider :8080]
-    Upstream -->|API| Claude[Claude/Gemini API]
+```
+Client → API Proxy (:8180) → Upstream LLM Providers
+                              ├── Claude (Anthropic API)
+                              ├── DeepSeek (OpenAI-compatible)
+                              └── Kimi (OpenAI-compatible)
 ```
 
 **Key Features:**
+- **Multi-model Gateway**: Routes requests to the correct upstream based on the `model` field.
 - **API Key Authentication**: Independent usage tracking per key.
-- **Smart Fallback**: Monitors upstream model quotas and auto-switches when limits are reached.
 - **Usage Statistics**: Tracks token usage by key, day, hour, and model.
-- **Format Conversion**: Handles Anthropic/OpenAI format differences.
+- **No Format Conversion**: Each model uses its native API format (Anthropic or OpenAI).
 
-> **Note**: Webhook handling has been migrated to `webhook-gateway`. This service no longer processes raw webhooks.
+## Model Registry
+
+Models are configured in `models.json`:
+
+| Model ID | Format | Upstream |
+|----------|--------|----------|
+| `claude-opus-4-6-thinking` | Anthropic Messages | Anthropic API |
+| `deepseek-chat` | OpenAI Chat Completions | DeepSeek API |
+| `kimi-k2.5` | OpenAI Chat Completions | Moonshot API |
+
+### Routing
+
+| Endpoint | Format | Models |
+|----------|--------|--------|
+| `POST /v1/messages` | Anthropic | `claude-opus-4-6-thinking` |
+| `POST /v1/chat/completions` | OpenAI | `deepseek-chat`, `kimi-k2.5` |
+| `GET /v1/models` | — | Lists all available models |
+
+Clients must use the correct endpoint for the model's native format. The proxy does **not** convert between formats.
 
 ## Deployment (Docker)
-
-The service is deployed using Docker Compose.
 
 ### 1. Start / Update
 
 ```bash
-# Pull latest image and start in background
 docker compose pull && docker compose up -d
 ```
 
 ### 2. View Logs
 
 ```bash
-# Follow container logs
 docker compose logs -f
 ```
 
 ### 3. Configuration
 
-Configuration is managed via `docker-compose.yml`, environment variables, and mounted JSON files.
-
 **Environment Variables:**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `UPSTREAM_URL` | `http://host.docker.internal:8080` | URL of the upstream LLM provider |
-| `KEYS_FILE` | `/app/keys.json` | Path to the keys file inside container |
-| `FALLBACK_CONFIG` | `/app/fallback.json` | Path to fallback config inside container |
+| `KEYS_FILE` | `/app/keys.json` | Path to the keys file |
+| `MODELS_CONFIG` | `/app/models.json` | Path to model registry config |
+| `CLAUDE_API_KEY` | — | API key for Claude upstream |
+| `DEEPSEEK_API_KEY` | — | API key for DeepSeek upstream |
+| `KIMI_API_KEY` | — | API key for Kimi upstream |
 
 **Volumes:**
 
-- `./keys.json` -> `/app/keys.json` (Read/Write): Stores API keys and usage data.
-- `./fallback.json` -> `/app/fallback.json` (Read-Only): Defines fallback chains.
+- `./keys.json` → `/app/keys.json` (rw): API keys and usage data
+- `./models.json` → `/app/models.json` (ro): Model registry
 
 ## Development
 
 ### Local Testing
 
-To run tests locally:
-
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run tests
 pytest
 ```
 
 ### Code Structure (`src/`)
 
-- `app.py`: Main FastAPI entrypoint and route definitions.
+- `app.py`: FastAPI entrypoint, route definitions, proxy logic.
 - `auth.py`: API key validation and management.
-- `proxy.py`: Request forwarding and response handling.
-- `fallback.py`: Logic for switching models upon failure/quota limits.
+- `config.py`: Configuration loading and model registry.
 - `usage.py`: Usage tracking and statistics recording.
-- `health.py`: Upstream health checks.
-- `config.py`: Configuration loading.
+- `health.py`: Health check endpoint.
+- `admin.py`: Admin endpoints for key/usage management.
 
 ## API Documentation
 
 ### Admin Endpoints
 
-Manage keys and view statistics via HTTP requests. Requires the Admin API Key.
-
-**Base URL**: `http://localhost:8180`
-
 ```bash
-export ADMIN_KEY="sk-admin-luna2026"
+export ADMIN_KEY="sk-admin-..."
 
-# Check Fallback Status (Model availability & quotas)
-curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/fallback
+# List models and status
+curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/models
 
-# View Daily Usage (Breakdown by model)
+# View Daily Usage
 curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/usage/daily
 
 # List All Keys
@@ -109,14 +111,10 @@ curl -s -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys
 # Create New Key
 curl -X POST -H "x-api-key: $ADMIN_KEY" -H "Content-Type: application/json" \
   -d '{"name": "NewUser"}' http://localhost:8180/admin/keys
-
-# Disable a Key
-curl -X POST -H "x-api-key: $ADMIN_KEY" http://localhost:8180/admin/keys/<api_key>/disable
 ```
 
 ### Health Check
 
 ```bash
-# Service health
 curl http://localhost:8180/health
 ```
