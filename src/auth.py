@@ -1,23 +1,42 @@
 """API Key authentication and management"""
 import json
 import uuid
+import secrets
+import logging
 from datetime import datetime
 
 from fastapi import HTTPException, Request
 
 from .config import KEYS_FILE, SGT
 
-
-def load_keys() -> dict:
-    """Load keys data from file"""
-    if KEYS_FILE.exists():
-        return json.loads(KEYS_FILE.read_text())
-    return {"admin_key": "sk-admin-luna2026", "keys": {}}
-
+log = logging.getLogger("api-proxy")
 
 def save_keys(data: dict):
     """Save keys data to file"""
     KEYS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def load_keys() -> dict:
+    """Load keys data from file"""
+    if KEYS_FILE.exists():
+        try:
+            return json.loads(KEYS_FILE.read_text())
+        except json.JSONDecodeError:
+            log.error("Keys file exists but is invalid JSON")
+    
+    # First run or missing file: generate random admin key
+    admin_key = f"sk-admin-{secrets.token_hex(16)}"
+    data = {"admin_key": admin_key, "keys": {}}
+    
+    try:
+        save_keys(data)
+        msg = f"Generated new ADMIN KEY: {admin_key}"
+        print(f"\n{'='*60}\n{msg}\n{'='*60}\n")
+        log.warning(msg)
+    except Exception as e:
+        log.error(f"Failed to save generated keys: {e}")
+        
+    return data
 
 
 def get_key_info(api_key: str) -> dict | None:
