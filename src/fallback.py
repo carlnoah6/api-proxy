@@ -6,7 +6,7 @@ from typing import Optional
 
 import httpx
 
-from .config import FALLBACK_CONFIG_FILE, UPSTREAM, log
+from .config import FALLBACK_CONFIG_FILE, UPSTREAM, log, GLM_API_KEY, KIMI_API_KEY
 
 
 def load_fallback_config() -> dict:
@@ -30,14 +30,26 @@ def load_fallback_config() -> dict:
             }
         ]
     }
+    
+    config = default
     if FALLBACK_CONFIG_FILE.exists():
         try:
-            return json.loads(FALLBACK_CONFIG_FILE.read_text())
+            config = json.loads(FALLBACK_CONFIG_FILE.read_text())
         except Exception:
             pass
-    # Write default config
-    FALLBACK_CONFIG_FILE.write_text(json.dumps(default, indent=2, ensure_ascii=False))
-    return default
+    
+    # Inject API keys for external tiers
+    for tier in config.get("tiers", []):
+        if tier["model"] == "glm-4-plus" or tier["model"] == "glm-5":
+            tier["api_key"] = GLM_API_KEY
+        elif tier["model"].startswith("moonshot"):
+            tier["api_key"] = KIMI_API_KEY
+            
+    # Write default if missing (logic preserved from original)
+    if not FALLBACK_CONFIG_FILE.exists():
+        FALLBACK_CONFIG_FILE.write_text(json.dumps(default, indent=2, ensure_ascii=False))
+        
+    return config
 
 
 class HealthCache:

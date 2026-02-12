@@ -83,6 +83,23 @@ else
     fi
 fi
 
+# 6. Non-streaming request (OpenAI /v1/chat/completions format)
+echo "6️⃣  Non-streaming OpenAI format (gemini-3-flash)"
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "x-api-key: $TEST_KEY" \
+    -d '{"model":"gemini-3-flash","messages":[{"role":"user","content":"Say hello"}],"max_tokens":50}' 2>/dev/null)
+HTTP_CODE=$(echo "$RESP" | tail -1)
+if [ "$HTTP_CODE" = "200" ]; then
+    pass "Non-streaming OpenAI gemini-3-flash → 200"
+else
+     if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+        echo "  ⚠️  Skipped (test key not in this env)"
+    else
+        fail "Non-streaming OpenAI request" "got $HTTP_CODE"
+    fi
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Results: $PASSED passed, $FAILED failed"

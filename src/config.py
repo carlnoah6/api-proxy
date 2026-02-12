@@ -17,13 +17,22 @@ KEYS_FILE = Path(os.environ.get("KEYS_FILE", os.path.join(_BASE_DIR, "keys.json"
 FALLBACK_CONFIG_FILE = Path(os.environ.get("FALLBACK_CONFIG", os.path.join(_BASE_DIR, "fallback.json")))
 
 # ── Lark OAuth config ──
-LARK_APP_ID = "cli_a90c3a6163785ed2"
-LARK_APP_SECRET = "IpWX3GqEgSDYfDVD8ICUedxjfbIanr7O"
+LARK_APP_ID = os.environ.get("LARK_APP_ID", "cli_a90c3a6163785ed2")
+LARK_APP_SECRET = os.environ.get("LARK_APP_SECRET")
+if not LARK_APP_SECRET:
+    log.warning("LARK_APP_SECRET is not set in environment variables. Lark API calls may fail.")
 LARK_TOKEN_FILE = os.environ.get(
     "LARK_TOKEN_FILE",
     "/home/ubuntu/.openclaw/workspace/data/lark-user-token.json"
 )
 
-# ── Logging ──
+# ── Upstream Provider Keys ──
+GLM_API_KEY = os.environ.get("GLM_API_KEY")
+KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
+
+# ── API Keys ──
+GLM_API_KEY = os.environ.get("GLM_API_KEY")
+KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("api-proxy")
