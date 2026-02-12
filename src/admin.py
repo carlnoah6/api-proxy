@@ -113,13 +113,17 @@ async def admin_total_usage(request: Request):
 
 
 async def admin_daily_usage(request: Request, date: str = None):
-    """Daily usage stats with model breakdown"""
+    """Daily usage stats with model breakdown (multi-tenant)
+
+    Returns daily usage aggregated by tenant (API key) and by model.
+    """
     require_admin(request)
     data = load_keys()
 
     daily_all = {}
-    per_key = {}
-    models_all = {}
+    per_key = {}  # Tenant-level data
+    models_all = {}  # Global model stats
+    models_by_key = {}  # Per-tenant model stats: {date: {key_name: {model: {...}}}}
 
     for key_id, info in data["keys"].items():
         name = info["name"]
@@ -134,24 +138,39 @@ async def admin_daily_usage(request: Request, date: str = None):
             daily_all[d]["requests"] += stats["requests"]
             if d not in per_key:
                 per_key[d] = []
-            per_key[d].append({
-                "name": name,
-                "input": stats["input"],
-                "output": stats["output"],
-                "requests": stats["requests"]
-            })
-            for model, m_stats in stats.get("by_model", {}).items():
-                if d not in models_all:
-                    models_all[d] = {}
-                if model not in models_all[d]:
-                    models_all[d][model] = {"total": 0, "requests": 0}
 
+            # Per-tenant model stats
+            key_models = {}
+            for model, m_stats in stats.get("by_model", {}).items():
                 total = m_stats.get("total", 0)
                 if total == 0 and ("input" in m_stats or "output" in m_stats):
                     total = m_stats.get("input", 0) + m_stats.get("output", 0)
 
+                key_models[model] = {
+                    "total": total,
+                    "requests": m_stats.get("requests", 0)
+                }
+
+                # Global model stats
+                if d not in models_all:
+                    models_all[d] = {}
+                if model not in models_all[d]:
+                    models_all[d][model] = {"total": 0, "requests": 0}
                 models_all[d][model]["total"] += total
                 models_all[d][model]["requests"] += m_stats.get("requests", 0)
+
+            per_key[d].append({
+                "name": name,
+                "input": stats["input"],
+                "output": stats["output"],
+                "requests": stats["requests"],
+                "by_model": key_models
+            })
+
+            # Store per-tenant model stats
+            if d not in models_by_key:
+                models_by_key[d] = {}
+            models_by_key[d][name] = key_models
 
     result = []
     for d in sorted(daily_all.keys()):
@@ -165,6 +184,7 @@ async def admin_daily_usage(request: Request, date: str = None):
                 key=lambda x: x[1]["total"],
                 reverse=True
             )),
+            "by_tenant": models_by_key.get(d, {}),  # New: per-tenant model breakdown
             "keys": sorted(per_key.get(d, []), key=lambda x: x["input"] + x["output"], reverse=True)
         })
 
@@ -172,32 +192,56 @@ async def admin_daily_usage(request: Request, date: str = None):
 
 
 async def admin_hourly_usage(request: Request, date: str = None):
-    """Hourly usage stats with model breakdown"""
+    """Hourly usage stats with model breakdown (multi-tenant)
+
+    Returns hourly usage aggregated by tenant (API key) and by model.
+    """
     require_admin(request)
     data = load_keys()
 
-    hourly_all = {}
+    hourly_all = {}  # {hour: {model: {...}}}
+    hourly_by_tenant = {}  # {hour: {tenant: {model: {...}}}}
+
     for key_id, info in data["keys"].items():
+        name = info["name"]
         hourly = info["usage"].get("hourly", {})
         for h, stats in hourly.items():
             if date and not h.startswith(date):
                 continue
+
             if h not in hourly_all:
                 hourly_all[h] = {}
-            for model, m_stats in stats.get("by_model", {}).items():
-                if model not in hourly_all[h]:
-                    hourly_all[h][model] = {"total": 0, "requests": 0}
+            if h not in hourly_by_tenant:
+                hourly_by_tenant[h] = {}
+            if name not in hourly_by_tenant[h]:
+                hourly_by_tenant[h][name] = {}
 
+            for model, m_stats in stats.get("by_model", {}).items():
                 total = m_stats.get("total", 0)
                 if total == 0 and ("input" in m_stats or "output" in m_stats):
                     total = m_stats.get("input", 0) + m_stats.get("output", 0)
 
+                requests = m_stats.get("requests", 0)
+
+                # Global model stats
+                if model not in hourly_all[h]:
+                    hourly_all[h][model] = {"total": 0, "requests": 0}
                 hourly_all[h][model]["total"] += total
-                hourly_all[h][model]["requests"] += m_stats.get("requests", 0)
+                hourly_all[h][model]["requests"] += requests
+
+                # Per-tenant model stats
+                if model not in hourly_by_tenant[h][name]:
+                    hourly_by_tenant[h][name][model] = {"total": 0, "requests": 0}
+                hourly_by_tenant[h][name][model]["total"] += total
+                hourly_by_tenant[h][name][model]["requests"] += requests
 
     result = []
     for h in sorted(hourly_all.keys()):
-        result.append({"hour": h, "by_model": hourly_all[h]})
+        result.append({
+            "hour": h,
+            "by_model": hourly_all[h],
+            "by_tenant": hourly_by_tenant.get(h, {})  # New: per-tenant breakdown
+        })
 
     return {"hours": result}
 
