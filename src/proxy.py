@@ -31,13 +31,12 @@ def anthropic_to_openai(body: dict) -> dict:
                     text_parts.append(block.get("text", ""))
                 elif block.get("type") == "thinking":
                     pass  # Skip thinking blocks in input
-                elif block.get("type") == "tool_use":
-                    text_parts.append(f"[Tool call: {block.get('name', '')}({json.dumps(block.get('input', {}))})]")
-                elif block.get("type") == "tool_result":
-                    text_parts.append(f"[Tool result: {block.get('content', '')}]")
-                elif block.get("type") == "image":
-                    text_parts.append("[Image]")
-            messages.append({"role": role, "content": "\n".join(text_parts) if text_parts else ""})
+                # Skip unsupported blocks in cross-format conversion
+                elif block.get("type") in ("tool_use", "tool_result", "image"):
+                    pass
+            
+            if text_parts:
+                messages.append({"role": role, "content": "\n".join(text_parts)})
 
     result = {
         "model": body.get("model", ""),

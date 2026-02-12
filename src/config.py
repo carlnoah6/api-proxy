@@ -24,6 +24,13 @@ LARK_TOKEN_FILE = os.environ.get(
     "/home/ubuntu/.openclaw/workspace/data/lark-user-token.json"
 )
 
-# ── Logging ──
+# ── Upstream Provider Keys ──
+GLM_API_KEY = os.environ.get("GLM_API_KEY")
+KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
+
+# ── API Keys ──
+GLM_API_KEY = os.environ.get("GLM_API_KEY")
+KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("api-proxy")

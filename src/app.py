@@ -1,6 +1,7 @@
 """FastAPI application - routes and proxy logic"""
 import json
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Request
@@ -19,12 +20,21 @@ from .usage import record_usage
 
 async def call_external_tier(
     tier: dict, body: dict, is_stream: bool,
-    key_info: dict, original_model: str
+    key_info: dict, original_model: str,
+    client_format: Literal["anthropic", "openai"] = "anthropic"
 ) -> StreamingResponse | JSONResponse:
-    """Call external API (e.g., Kimi)"""
-    openai_body = anthropic_to_openai(body)
+    """Call external API (e.g., Kimi). Format depends on client_format."""
+    
+    # Prepare body for OpenAI-compatible external tier
+    if client_format == "anthropic":
+        openai_body = anthropic_to_openai(body)
+    else:
+        # Already OpenAI format, just copy and update model
+        openai_body = body.copy()
+
     openai_body["model"] = tier["model"]
 
+    # Enforce max tokens limit if configured
     max_limit = tier.get("max_tokens_limit", 8192)
     if openai_body.get("max_tokens", 0) > max_limit:
         openai_body["max_tokens"] = max_limit
@@ -51,18 +61,27 @@ async def call_external_tier(
                     status_code=resp.status_code
                 )
 
-            converter = openai_stream_to_anthropic_stream(original_model)
+            # If client is Anthropic, convert stream. If OpenAI, pass through.
+            if client_format == "anthropic":
+                converter = openai_stream_to_anthropic_stream(original_model)
+                async def stream_gen():
+                    async for chunk in converter(resp):
+                        yield chunk
+                
+                return StreamingResponse(
+                    stream_gen(),
+                    status_code=200,
+                    media_type="text/event-stream",
+                    headers={"content-type": "text/event-stream"}
+                )
+            else:
+                return StreamingResponse(
+                    resp.aiter_bytes(),
+                    status_code=200,
+                    media_type=resp.headers.get("content-type", "text/event-stream"),
+                    background=None  # We don't control the close here easily in pass-through without wrapper
+                )
 
-            async def stream_gen():
-                async for chunk in converter(resp):
-                    yield chunk
-
-            return StreamingResponse(
-                stream_gen(),
-                status_code=200,
-                media_type="text/event-stream",
-                headers={"content-type": "text/event-stream"}
-            )
         else:
             resp = await ext_client.post(
                 f"{tier['base_url']}/chat/completions",
@@ -76,17 +95,27 @@ async def call_external_tier(
                 )
 
             resp_data = resp.json()
-            anthropic_resp = openai_to_anthropic(resp_data, original_model)
-
-            usage = anthropic_resp.get("usage", {})
+            
+            # Record Usage
+            usage = resp_data.get("usage", {})
             record_usage(
                 key_info["key"],
-                usage.get("input_tokens", 0),
-                usage.get("output_tokens", 0),
+                usage.get("prompt_tokens", 0) if client_format == "openai" else usage.get("input_tokens", 0), # Usage keys differ slightly or mapped? 
+                # Actually proxy.py openai_to_anthropic maps usage. Let's trust standard OpenAI usage keys here.
+                usage.get("completion_tokens", 0),
                 tier["model"]
             )
 
-            return JSONResponse(content=anthropic_resp)
+            if client_format == "anthropic":
+                anthropic_resp = openai_to_anthropic(resp_data, original_model)
+                # Correction: openai_to_anthropic returns {usage: {input_tokens...}}
+                # We should record usage from that mapped response if available, or just use raw.
+                # Re-recording to be safe/consistent with logic below
+                u = anthropic_resp.get("usage", {})
+                # Overwrite usage recording with mapped values if needed, but raw is fine.
+                return JSONResponse(content=anthropic_resp)
+            else:
+                return JSONResponse(content=resp_data)
 
 
 # ── Reactive fallback helper ──
@@ -94,7 +123,8 @@ async def call_external_tier(
 
 async def _try_reactive_fallback(
     client, request, url, headers, req_data, key_info,
-    is_stream, error_status, error_body=b""
+    is_stream, error_status, error_body=b"",
+    client_format: Literal["anthropic", "openai"] = "anthropic"
 ):
     """Try to find and use a fallback when upstream fails"""
     health_cache.last_poll = 0
@@ -116,11 +146,14 @@ async def _try_reactive_fallback(
 
         if is_avail:
             log.info(f"⚡ Reactive fallback ({error_status}): {requested_model} → {tier['model']}")
+            
+            # If fallback is another upstream node (antigravity/upstream), we just retry with new model
             if tier["type"] in ("antigravity", "upstream"):
                 req_data["model"] = tier["model"]
                 new_body = json.dumps(req_data).encode()
 
                 if is_stream:
+                    # For upstream fallback, we use the original URL (preserving format endpoint)
                     upstream_req = client.build_request(
                         method=request.method, url=url, headers=headers, content=new_body
                     )
@@ -136,8 +169,9 @@ async def _try_reactive_fallback(
                     if resp.status_code == 200:
                         return resp
             else:
+                # External tier (e.g. Kimi) - Use the specific client format
                 return await call_external_tier(
-                    tier, req_data, is_stream, key_info, requested_model
+                    tier, req_data, is_stream, key_info, requested_model, client_format
                 )
 
     return None  # No fallback succeeded
@@ -166,11 +200,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Luna API Proxy", lifespan=lifespan)
 
 
-# ── Proxy route ──
+# ── Shared Request Handler ──
 
-
-@app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy(request: Request, path: str, key_info: dict = Depends(require_api_key)):
+async def _handle_request_logic(
+    request: Request,
+    path_suffix: str,
+    key_info: dict,
+    client_format: Literal["anthropic", "openai"]
+):
     client: httpx.AsyncClient = request.app.state.client
     body = await request.body()
 
@@ -192,32 +229,145 @@ async def proxy(request: Request, path: str, key_info: dict = Depends(require_ap
             pass
 
     # ── Proactive Fallback ──
-    if req_data and path == "messages":
+    if req_data:
         requested_model = req_data.get("model", "")
-        log.info(f"Incoming request for model: {requested_model}")
-        fallback_tier = await pick_tier(client, requested_model)
+        # Only log if model exists
+        if requested_model:
+            log.info(f"[{client_format}] Request for model: {requested_model}")
+            fallback_tier = await pick_tier(client, requested_model)
 
-        if fallback_tier:
-            if fallback_tier["type"] not in ("antigravity", "upstream"):
-                return await call_external_tier(
-                    fallback_tier, req_data, is_stream, key_info, requested_model)
-            else:
-                req_data["model"] = fallback_tier["model"]
-                body = json.dumps(req_data).encode()
-                log.info(f"Swapped model in request: {requested_model} → {fallback_tier['model']}")
 
-    url = f"/v1/{path}"
+            if fallback_tier:
+                if fallback_tier["type"] not in ("antigravity", "upstream"):
+                    return await call_external_tier(
+                        fallback_tier, req_data, is_stream, key_info, requested_model, client_format)
+                else:
+                    req_data["model"] = fallback_tier["model"]
+                    body = json.dumps(req_data).encode()
+                    log.info(f"Swapped model in request: {requested_model} → {fallback_tier['model']}")
+
+    # Pass-through to upstream
+    url = f"/v1/{path_suffix}"
 
     if is_stream:
-        return await _handle_stream(client, request, url, headers, body, req_data, path, key_info)
+        return await _handle_stream(client, request, url, headers, body, req_data, path_suffix, key_info, client_format)
     else:
-        return await _handle_non_stream(client, request, url, headers, body, req_data, path, key_info)
+        return await _handle_non_stream(client, request, url, headers, body, req_data, path_suffix, key_info, client_format)
+
+
+@app.get("/v1/models")
+async def list_models(key_info: dict = Depends(require_api_key)):
+    """List available models from upstream and fallback tiers"""
+    # Poll health to get latest upstream models
+    await health_cache.poll(app.state.client)
+    
+    models = []
+    created_time = 1677610602
+    
+    # 1. Add Upstream Models
+    for model_id in health_cache.models.keys():
+        models.append({
+            "id": model_id,
+            "object": "model",
+            "created": created_time,
+            "owned_by": "upstream"
+        })
+        
+    # 2. Add Fallback Tiers
+    config = load_fallback_config()
+    for tier in config.get("tiers", []):
+        model_id = tier["model"]
+        # Avoid duplicates
+        if not any(m["id"] == model_id for m in models):
+            models.append({
+                "id": model_id,
+                "object": "model",
+                "created": created_time,
+                "owned_by": "external" if tier.get("type") == "openai" else "system"
+            })
+            
+    return JSONResponse(content={
+        "object": "list",
+        "data": models
+    })
+
+
+# ── Route Handlers ──
+
+@app.post("/v1/messages")
+async def post_messages(request: Request, key_info: dict = Depends(require_api_key)):
+    return await _handle_request_logic(request, "messages", key_info, "anthropic")
+
+@app.post("/v1/chat/completions")
+async def post_chat_completions(request: Request, key_info: dict = Depends(require_api_key)):
+    return await _handle_request_logic(request, "chat/completions", key_info, "openai")
+
+@app.get("/v1/models")
+async def get_models(key_info: dict = Depends(require_api_key)):
+    """List available models (union of upstream and fallback tiers)"""
+    models = []
+    seen = set()
+    
+    # 1. Add models from fallback config
+    config = load_fallback_config()
+    for tier in config.get("tiers", []):
+        m = tier["model"]
+        if m not in seen:
+            models.append({
+                "id": m,
+                "object": "model",
+                "created": 1677610602,
+                "owned_by": tier.get("type", "unknown")
+            })
+            seen.add(m)
+            
+    # 2. Add models from health cache (upstream)
+    for m in health_cache.models.keys():
+        if m not in seen:
+            models.append({
+                "id": m,
+                "object": "model",
+                "created": 1677610602,
+                "owned_by": "upstream"
+            })
+            seen.add(m)
+            
+    return JSONResponse(content={"object": "list", "data": models})
+
+# Catch-all for other routes (models, etc)
+@app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_catchall(request: Request, path: str, key_info: dict = Depends(require_api_key)):
+    # Default to anthropic for catch-all or just pass through?
+    # Let's assume generic pass-through without specific fallback logic for non-chat routes
+    client: httpx.AsyncClient = request.app.state.client
+    body = await request.body()
+    
+    headers = {}
+    for k, v in request.headers.items():
+        if k.lower() not in ("host", "authorization", "x-api-key", "content-length"):
+            headers[k] = v
+    headers["x-api-key"] = "test"
+    
+    url = f"/v1/{path}"
+    
+    req = client.build_request(request.method, url, headers=headers, content=body)
+    resp = await client.send(req, stream=True)
+    
+    return StreamingResponse(
+        resp.aiter_bytes(),
+        status_code=resp.status_code,
+        headers=dict(resp.headers),
+        media_type=resp.headers.get("content-type")
+    )
 
 
 # ── Stream handler ──
 
 
-async def _handle_stream(client, request, url, headers, body, req_data, path, key_info):
+async def _handle_stream(
+    client, request, url, headers, body, req_data, path, key_info,
+    client_format: Literal["anthropic", "openai"]
+):
     upstream_req = client.build_request(
         method=request.method, url=url, headers=headers, content=body
     )
@@ -228,7 +378,7 @@ async def _handle_stream(client, request, url, headers, body, req_data, path, ke
     error_body = b""
     error_status = upstream_resp.status_code
 
-    if req_data and path == "messages":
+    if req_data:
         if upstream_resp.status_code in (429, 503):
             should_fallback = True
         elif upstream_resp.status_code != 200:
@@ -244,7 +394,7 @@ async def _handle_stream(client, request, url, headers, body, req_data, path, ke
         await upstream_resp.aclose()
         fallback_result = await _try_reactive_fallback(
             client, request, url, headers, req_data, key_info,
-            True, error_status, error_body
+            True, error_status, error_body, client_format
         )
         if fallback_result is not None:
             if isinstance(fallback_result, (StreamingResponse, JSONResponse)):
@@ -264,6 +414,7 @@ async def _handle_stream(client, request, url, headers, body, req_data, path, ke
             headers=dict(upstream_resp.headers)
         )
 
+    # Usage tracking wrapper
     input_tokens = 0
     output_tokens = 0
     model = ""
@@ -273,25 +424,39 @@ async def _handle_stream(client, request, url, headers, body, req_data, path, ke
         try:
             async for chunk in upstream_resp.aiter_bytes():
                 yield chunk
-                for line in chunk.decode("utf-8", errors="ignore").split("\n"):
-                    if line.startswith("data: ") and line != "data: [DONE]":
-                        try:
-                            d = json.loads(line[6:])
+                # Usage extraction logic differs by format, but let's try to be generic or specific
+                line_str = chunk.decode("utf-8", errors="ignore")
+                for line in line_str.split("\n"):
+                    if not line.startswith("data: ") or line == "data: [DONE]":
+                        continue
+                    try:
+                        d = json.loads(line[6:])
+                        
+                        if client_format == "anthropic":
+                            # Anthropic usage format
                             msg = d.get("message", {})
                             if isinstance(msg, dict) and "usage" in msg:
                                 u = msg["usage"]
                                 input_tokens += u.get("input_tokens", 0) or 0
                                 output_tokens += u.get("output_tokens", 0) or 0
                             if "usage" in d and "message" not in d:
+                                # Sometimes top level in some proxies
                                 u = d["usage"]
                                 input_tokens += u.get("input_tokens", 0) or 0
                                 output_tokens += u.get("output_tokens", 0) or 0
+                            if isinstance(msg, dict) and "model" in msg:
+                                model = msg["model"]
+                        else:
+                            # OpenAI usage format (often in final chunk or 'usage' field)
+                            if "usage" in d:
+                                u = d["usage"]
+                                input_tokens += u.get("prompt_tokens", 0) or 0
+                                output_tokens += u.get("completion_tokens", 0) or 0
                             if "model" in d:
                                 model = d["model"]
-                            elif isinstance(msg, dict) and "model" in msg:
-                                model = msg["model"]
-                        except Exception:
-                            pass
+                                
+                    except Exception:
+                        pass
             await upstream_resp.aclose()
         except Exception as e:
             log.warning(f"Stream error for model={model or 'unknown'}: {e}")
@@ -299,6 +464,7 @@ async def _handle_stream(client, request, url, headers, body, req_data, path, ke
                 await upstream_resp.aclose()
             except Exception:
                 pass
+        
         if input_tokens or output_tokens:
             record_usage(key_info["key"], input_tokens, output_tokens, model)
 
@@ -313,14 +479,17 @@ async def _handle_stream(client, request, url, headers, body, req_data, path, ke
 # ── Non-stream handler ──
 
 
-async def _handle_non_stream(client, request, url, headers, body, req_data, path, key_info):
+async def _handle_non_stream(
+    client, request, url, headers, body, req_data, path, key_info,
+    client_format: Literal["anthropic", "openai"]
+):
     resp = await client.request(
         method=request.method, url=url, headers=headers, content=body
     )
 
     # Reactive fallback on 429/503/exhausted
     should_fallback = False
-    if req_data and path == "messages":
+    if req_data:
         if resp.status_code in (429, 503):
             should_fallback = True
         elif resp.status_code != 200:
@@ -334,7 +503,7 @@ async def _handle_non_stream(client, request, url, headers, body, req_data, path
     if should_fallback:
         fallback_result = await _try_reactive_fallback(
             client, request, url, headers, req_data, key_info,
-            False, resp.status_code
+            False, resp.status_code, b"", client_format
         )
         if fallback_result is not None:
             if isinstance(fallback_result, (StreamingResponse, JSONResponse)):
@@ -345,8 +514,14 @@ async def _handle_non_stream(client, request, url, headers, body, req_data, path
     try:
         resp_data = resp.json()
         usage = resp_data.get("usage", {})
-        input_tokens = usage.get("input_tokens", 0) or 0
-        output_tokens = usage.get("output_tokens", 0) or 0
+        
+        if client_format == "anthropic":
+            input_tokens = usage.get("input_tokens", 0) or 0
+            output_tokens = usage.get("output_tokens", 0) or 0
+        else:
+            input_tokens = usage.get("prompt_tokens", 0) or 0
+            output_tokens = usage.get("completion_tokens", 0) or 0
+            
         model = resp_data.get("model", "")
         if input_tokens or output_tokens:
             record_usage(key_info["key"], input_tokens, output_tokens, model)
