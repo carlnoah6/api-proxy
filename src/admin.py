@@ -7,7 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from .auth import create_api_key, load_keys, require_admin, save_keys
-from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, get_models_registry
+from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, get_known_models, get_providers
 
 # ── Key Management ──
 
@@ -252,19 +252,13 @@ async def admin_hourly_usage(request: Request, date: str = None):
 async def admin_models_status(request: Request):
     """View registered models and their configuration"""
     require_admin(request)
-    registry = get_models_registry()
-
-    models = []
-    for model_id, config in registry.items():
-        models.append({
-            "id": model_id,
-            "name": config.get("name", model_id),
-            "format": config["format"],
-            "base_url": config["base_url"],
-            "has_api_key": bool(config.get("api_key")),
-        })
-
-    return {"models": models, "total": len(models)}
+    providers = get_providers()
+    known = get_known_models()
+    plist = []
+    for pid, p in providers.items():
+        plist.append({"id": pid, "name": p.get("name", pid), "has_api_key": bool(p.get("api_key"))})
+    mlist = [{"id": m["id"], "provider": m["provider"]} for m in known]
+    return {"providers": plist, "known_models": mlist}
 
 
 # ── OAuth / Lark callbacks ──
