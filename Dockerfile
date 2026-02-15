@@ -8,7 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code (read-only in container)
 COPY src/ ./src/
-COPY server.py .
 
 # Config files (keys.json, fallback.json, webhook_secret.txt)
 # are mounted as volumes at runtime, NOT baked into the image.
