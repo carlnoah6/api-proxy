@@ -219,6 +219,7 @@ class TestKeyAuth:
 
     def test_require_api_key_missing_raises_401(self):
         from fastapi import HTTPException
+
         from src.auth import require_api_key
         request = MagicMock()
         request.headers = {}
@@ -228,6 +229,7 @@ class TestKeyAuth:
 
     def test_require_api_key_disabled_raises_403(self):
         from fastapi import HTTPException
+
         from src.auth import require_api_key
         request = MagicMock()
         request.headers = {"x-api-key": "sk-test-disabled"}
@@ -243,6 +245,7 @@ class TestKeyAuth:
 
     def test_require_admin_invalid_raises_403(self):
         from fastapi import HTTPException
+
         from src.auth import require_admin
         request = MagicMock()
         request.headers = {"x-api-key": "sk-not-admin"}
@@ -448,6 +451,7 @@ class TestHealthEndpoint:
     @pytest.mark.asyncio
     async def test_health_endpoint(self):
         from fastapi.testclient import TestClient
+
         from src.app import app
         client = TestClient(app)
         response = client.get("/health")
@@ -460,6 +464,7 @@ class TestHealthEndpoint:
     @pytest.mark.asyncio
     async def test_health_endpoint_counts(self):
         from fastapi.testclient import TestClient
+
         from src.app import app
         client = TestClient(app)
         response = client.get("/health")
@@ -476,6 +481,7 @@ class TestHealthEndpoint:
 class TestAdminEndpoints:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from src.app import app
         return TestClient(app)
 
@@ -553,6 +559,7 @@ class TestAdminEndpoints:
 class TestProxyAuth:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from src.app import app
         return TestClient(app)
 
@@ -579,6 +586,7 @@ class TestProxyAuth:
 class TestModelRouting:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from src.app import app
         return TestClient(app)
 
