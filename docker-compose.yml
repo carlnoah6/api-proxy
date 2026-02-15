@@ -6,7 +6,6 @@ services:
     ports:
       - "8180:8180"
     volumes:
-      # keys.json must be rw — usage tracking writes back to it
       - ./keys.json:/app/keys.json:rw
       - ./models.json:/app/models.json:ro
       - ./webhook_secret.txt:/app/webhook_secret.txt:ro
@@ -14,6 +13,6 @@ services:
       - KEYS_FILE=/app/keys.json
       - MODELS_CONFIG=/app/models.json
       - WEBHOOK_SECRET_FILE=/app/webhook_secret.txt
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY:-sk-luna-2026-openclaw}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - KIMI_API_KEY=${KIMI_API_KEY}
