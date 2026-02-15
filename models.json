@@ -29,6 +29,36 @@
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
       "owned_by": "moonshot"
+    },
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "format": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "JOSE_OPENAI_API_KEY",
+      "auth_header": "authorization_bearer",
+      "chat_endpoint": "/chat/completions",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "format": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "api_key_env": "JOSE_GEMINI_API_KEY",
+      "auth_header": "authorization_bearer",
+      "chat_endpoint": "/chat/completions",
+      "owned_by": "google"
+    },
+    {
+      "id": "glm-5",
+      "name": "GLM-5 (ZAI MAX)",
+      "format": "openai",
+      "base_url": "https://api.z.ai/api/coding/paas/v4",
+      "api_key_env": "ZAI_API_KEY",
+      "auth_header": "authorization_bearer",
+      "chat_endpoint": "/chat/completions",
+      "owned_by": "zhipu"
     }
   ]
 }
