@@ -12,9 +12,17 @@ from .auth import check_provider_access, get_accessible_providers, require_api_k
 from .config import get_known_models, get_providers, log, resolve_model
 from .usage import record_usage
 
-# ── Providers (loaded once at startup) ──
+# ── Providers (loaded at startup, refreshed from config as fallback) ──
 
 _providers: dict[str, dict] = {}
+
+
+def _get_providers() -> dict[str, dict]:
+    """Return providers, loading from config if not yet initialized."""
+    global _providers
+    if not _providers:
+        _providers = get_providers()  # lifespan init
+    return _providers
 
 
 # ── Lifespan ──
@@ -23,7 +31,7 @@ _providers: dict[str, dict] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _providers
-    _providers = get_providers()
+    _providers = get_providers()  # lifespan init
     log.info(f"Loaded {len(_providers)} providers: {list(_providers.keys())}")
 
     app.state.http_client = httpx.AsyncClient(
@@ -200,7 +208,7 @@ async def _handle_non_stream(
 
 def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "openai"):
     """Resolve model to provider and check access."""
-    provider, provider_id = resolve_model(model_id, _providers)
+    provider, provider_id = resolve_model(model_id, _get_providers())
 
     if not provider:
         if error_format == "anthropic":
@@ -315,7 +323,7 @@ async def post_chat_completions(
 @app.get("/v1/models")
 async def list_models(key_info: dict = Depends(require_api_key)):
     """List available models (filtered by user's provider access)."""
-    accessible_ids = set(get_accessible_providers(key_info, _providers).keys())
+    accessible_ids = set(get_accessible_providers(key_info, _get_providers()).keys())
 
     models = []
     for m in get_known_models():

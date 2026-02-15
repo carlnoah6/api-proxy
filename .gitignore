@@ -40,3 +40,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+.env
+app.py.patched
+backups/
