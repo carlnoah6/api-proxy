@@ -76,6 +76,14 @@ async def _proxy_to_upstream(
     else:
         headers["authorization"] = f"Bearer {api_key}"
 
+    # For streaming requests, add stream_options to include usage in final chunk
+    # This is supported by OpenAI-compatible APIs (including Moonshot/Kimi)
+    if is_stream and req_data:
+        req_data = req_data.copy()
+        if "stream_options" not in req_data:
+            req_data["stream_options"] = {"include_usage": True}
+        body = json.dumps(req_data).encode("utf-8")
+
     if is_stream:
         return await _handle_stream(http_client, upstream_url, headers, body, req_data, key_info, client_format)
     else:
