@@ -1,64 +1,111 @@
 {
-  "models": [
-    {
-      "id": "claude-opus-4-6-thinking",
-      "name": "Claude Opus 4.6 Thinking",
-      "format": "anthropic",
-      "base_url": "http://api.101aix.com",
-      "api_key_env": "AIX_API_KEY",
-      "auth_header": "x-api-key",
-      "chat_endpoint": "/v1/messages",
-      "owned_by": "anthropic"
-    },
-    {
-      "id": "deepseek-chat",
-      "name": "DeepSeek Chat",
-      "format": "openai",
-      "base_url": "https://api.deepseek.com/v1",
-      "api_key_env": "DEEPSEEK_API_KEY",
-      "auth_header": "authorization_bearer",
-      "chat_endpoint": "/chat/completions",
-      "owned_by": "deepseek"
-    },
-    {
-      "id": "kimi-k2.5",
-      "name": "Kimi K2.5",
+  "providers": {
+    "moonshot": {
+      "name": "Moonshot (Kimi)",
       "format": "openai",
       "base_url": "https://api.moonshot.cn/v1",
       "api_key_env": "KIMI_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "owned_by": "moonshot"
+      "model_prefixes": [
+        "kimi",
+        "moonshot"
+      ]
     },
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o",
+    "deepseek": {
+      "name": "DeepSeek",
       "format": "openai",
-      "base_url": "https://api.openai.com/v1",
-      "api_key_env": "JOSE_OPENAI_API_KEY",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "owned_by": "openai"
+      "model_prefixes": [
+        "deepseek"
+      ]
     },
-    {
-      "id": "gemini-2.5-flash",
-      "name": "Gemini 2.5 Flash",
-      "format": "openai",
-      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-      "api_key_env": "JOSE_GEMINI_API_KEY",
-      "auth_header": "authorization_bearer",
-      "chat_endpoint": "/chat/completions",
-      "owned_by": "google"
-    },
-    {
-      "id": "glm-5",
-      "name": "GLM-5 (ZAI MAX)",
+    "zhipu": {
+      "name": "ZAI / Zhipu (GLM)",
       "format": "openai",
       "base_url": "https://api.z.ai/api/coding/paas/v4",
       "api_key_env": "ZAI_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
+      "model_prefixes": [
+        "glm"
+      ]
+    },
+    "openai": {
+      "name": "OpenAI (ChatGPT)",
+      "format": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "JOSE_OPENAI_API_KEY",
+      "auth_header": "authorization_bearer",
+      "chat_endpoint": "/chat/completions",
+      "model_prefixes": [
+        "gpt",
+        "o1",
+        "o3",
+        "o4",
+        "chatgpt"
+      ]
+    },
+    "google": {
+      "name": "Google (Gemini)",
+      "format": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "api_key_env": "JOSE_GEMINI_API_KEY",
+      "auth_header": "authorization_bearer",
+      "chat_endpoint": "/chat/completions",
+      "model_prefixes": [
+        "gemini"
+      ]
+    }
+  },
+  "known_models": [
+    {
+      "id": "kimi-k2.5",
+      "provider": "moonshot",
+      "owned_by": "moonshot"
+    },
+    {
+      "id": "deepseek-chat",
+      "provider": "deepseek",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "deepseek-reasoner",
+      "provider": "deepseek",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "glm-5",
+      "provider": "zhipu",
       "owned_by": "zhipu"
+    },
+    {
+      "id": "glm-4.7",
+      "provider": "zhipu",
+      "owned_by": "zhipu"
+    },
+    {
+      "id": "gpt-4o",
+      "provider": "openai",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "provider": "openai",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "provider": "google",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "provider": "google",
+      "owned_by": "google"
     }
   ]
 }

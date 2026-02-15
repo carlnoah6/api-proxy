@@ -1,12 +1,15 @@
 """Health check endpoint"""
-from .config import get_models_registry
+from .config import get_known_models, get_providers
 
 
 async def health():
     """Health check endpoint handler"""
-    registry = get_models_registry()
+    providers = get_providers()
+    models = [m["id"] for m in get_known_models()]
     return {
         "status": "ok",
-        "models": list(registry.keys()),
-        "total_models": len(registry),
+        "providers": list(providers.keys()),
+        "models": models,
+        "total_providers": len(providers),
+        "total_models": len(models),
     }
