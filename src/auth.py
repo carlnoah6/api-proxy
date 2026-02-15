@@ -78,3 +78,23 @@ def create_api_key(name: str) -> tuple[str, dict]:
     data["keys"][api_key] = key_info
     save_keys(data)
     return api_key, key_info
+
+
+def check_model_access(key_info: dict, model_id: str) -> bool:
+    """Check if a key has access to a specific model.
+
+    If 'allowed_models' is not set, the key can access all models.
+    If set, only the listed models are accessible.
+    """
+    allowed = key_info.get("allowed_models")
+    if not allowed:
+        return True  # No restriction — access all models
+    return model_id in allowed
+
+
+def get_accessible_models(key_info: dict, all_models: dict) -> dict:
+    """Filter model registry to only models this key can access."""
+    allowed = key_info.get("allowed_models")
+    if not allowed:
+        return all_models
+    return {k: v for k, v in all_models.items() if k in allowed}
