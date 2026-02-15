@@ -8,11 +8,11 @@ from pathlib import Path
 # ── Timezone ──
 SGT = timezone(timedelta(hours=8))
 
-# ── Logging (must be before other imports that use log) ──
+# ── Logging ──
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("api-proxy")
 
-# ── Base directory (auto-detect: /app in Docker, repo root otherwise) ──
+# ── Base directory ──
 _BASE_DIR = os.environ.get("APP_BASE_DIR", str(Path(__file__).resolve().parent.parent))
 
 # ── Core config ──
@@ -24,51 +24,63 @@ MODELS_CONFIG_FILE = Path(os.environ.get("MODELS_CONFIG", os.path.join(_BASE_DIR
 LARK_APP_ID = os.environ.get("LARK_APP_ID", "cli_a90c3a6163785ed2")
 LARK_APP_SECRET = os.environ.get("LARK_APP_SECRET")
 if not LARK_APP_SECRET:
-    log.warning("LARK_APP_SECRET is not set in environment variables. Lark API calls may fail.")
+    log.warning("LARK_APP_SECRET is not set. Lark API calls may fail.")
 LARK_TOKEN_FILE = os.environ.get(
     "LARK_TOKEN_FILE",
-    "/home/ubuntu/.openclaw/workspace/data/lark-user-token.json"
+    "/home/ubuntu/.openclaw/workspace/data/lark-user-token.json",
 )
 
-# ── Upstream Provider API Keys ──
-AIX_API_KEY = os.environ.get("AIX_API_KEY", "")
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-KIMI_API_KEY = os.environ.get("KIMI_API_KEY", "")
 
-# ── API Key env mapping ──
-_API_KEY_MAP = {
-    "AIX_API_KEY": AIX_API_KEY,
-    "DEEPSEEK_API_KEY": DEEPSEEK_API_KEY,
-    "KIMI_API_KEY": KIMI_API_KEY,
-}
-
-
-def load_models_config() -> list[dict]:
-    """Load model registry from models.json.
-
-    Returns a list of model dicts, each with a resolved 'api_key' field.
-    """
+def _load_models_json() -> dict:
+    """Load the raw models.json file."""
     if not MODELS_CONFIG_FILE.exists():
         log.error(f"Models config not found: {MODELS_CONFIG_FILE}")
-        return []
-
+        return {"providers": {}, "known_models": []}
     try:
-        data = json.loads(MODELS_CONFIG_FILE.read_text())
+        return json.loads(MODELS_CONFIG_FILE.read_text())
     except Exception as e:
         log.error(f"Failed to load models config: {e}")
-        return []
-
-    models = data.get("models", [])
-
-    # Resolve API keys from environment
-    for m in models:
-        env_var = m.get("api_key_env", "")
-        m["api_key"] = _API_KEY_MAP.get(env_var, os.environ.get(env_var, ""))
-
-    return models
+        return {"providers": {}, "known_models": []}
 
 
-def get_models_registry() -> dict[str, dict]:
-    """Return a dict mapping model_id -> model config (with resolved api_key)."""
-    models = load_models_config()
-    return {m["id"]: m for m in models}
+def get_providers() -> dict[str, dict]:
+    """Return provider configs with resolved API keys."""
+    data = _load_models_json()
+    providers = data.get("providers", {})
+    for pid, p in providers.items():
+        env_var = p.get("api_key_env", "")
+        p["api_key"] = os.environ.get(env_var, "")
+        p["id"] = pid
+    return providers
+
+
+def get_known_models() -> list[dict]:
+    """Return list of known model entries."""
+    return _load_models_json().get("known_models", [])
+
+
+def resolve_model(model_id: str, providers: dict) -> tuple[dict | None, str | None]:
+    """Resolve a model ID to (provider_config, provider_id).
+
+    1. Try exact match in known_models
+    2. Try prefix match against provider model_prefixes
+    Returns (None, None) if no match.
+    """
+    data = _load_models_json()
+
+    # Exact match in known_models
+    for m in data.get("known_models", []):
+        if m["id"] == model_id:
+            pid = m["provider"]
+            if pid in providers:
+                return providers[pid], pid
+            return None, None
+
+    # Prefix match against providers
+    model_lower = model_id.lower()
+    for pid, p in providers.items():
+        for prefix in p.get("model_prefixes", []):
+            if model_lower.startswith(prefix.lower()):
+                return p, pid
+
+    return None, None

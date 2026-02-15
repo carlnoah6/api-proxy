@@ -1,4 +1,4 @@
-"""FastAPI application - multi-model gateway with usage tracking"""
+"""FastAPI application - multi-model gateway with provider-based routing and ACL"""
 import json
 from contextlib import asynccontextmanager
 
@@ -8,21 +8,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import admin as admin_handlers
 from . import health as health_module
-from .auth import check_model_access, get_accessible_models, require_api_key
-from .config import get_models_registry, log
+from .auth import check_provider_access, get_accessible_providers, require_api_key
+from .config import get_known_models, get_providers, log, resolve_model
 from .usage import record_usage
 
-# ── Model registry (loaded once at startup, refreshable) ──
+# ── Providers (loaded once at startup) ──
 
-_models_registry: dict[str, dict] = {}
-
-
-def _get_model_config(model_id: str) -> dict | None:
-    """Look up a model in the registry."""
-    global _models_registry
-    if not _models_registry:
-        _models_registry = get_models_registry()
-    return _models_registry.get(model_id)
+_providers: dict[str, dict] = {}
 
 
 # ── Lifespan ──
@@ -30,11 +22,10 @@ def _get_model_config(model_id: str) -> dict | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _models_registry
-    _models_registry = get_models_registry()
-    log.info(f"Loaded {len(_models_registry)} models: {list(_models_registry.keys())}")
+    global _providers
+    _providers = get_providers()
+    log.info(f"Loaded {len(_providers)} providers: {list(_providers.keys())}")
 
-    # Create a shared httpx client pool (per-model clients are created on-demand)
     app.state.http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=30, read=300, write=30, pool=30)
     )
@@ -51,7 +42,7 @@ app = FastAPI(title="Luna API Proxy", lifespan=lifespan)
 
 
 async def _proxy_to_upstream(
-    model_config: dict,
+    provider: dict,
     request: Request,
     body: bytes,
     req_data: dict | None,
@@ -59,25 +50,22 @@ async def _proxy_to_upstream(
     is_stream: bool,
     client_format: str,
 ):
-    """Proxy a request to the correct upstream based on model_config."""
+    """Proxy a request to the correct upstream based on provider config."""
     http_client: httpx.AsyncClient = request.app.state.http_client
 
-    base_url = model_config["base_url"]
-    chat_endpoint = model_config["chat_endpoint"]
-    upstream_url = f"{base_url}{chat_endpoint}"
+    upstream_url = f"{provider['base_url']}{provider['chat_endpoint']}"
 
     # Build upstream headers
     headers = {"content-type": "application/json"}
-    auth_header = model_config.get("auth_header", "authorization_bearer")
-    api_key = model_config.get("api_key", "")
+    auth_header = provider.get("auth_header", "authorization_bearer")
+    api_key = provider.get("api_key", "")
 
     if auth_header == "x-api-key":
         headers["x-api-key"] = api_key
     else:
         headers["authorization"] = f"Bearer {api_key}"
 
-    # For streaming requests, add stream_options to include usage in final chunk
-    # This is supported by OpenAI-compatible APIs (including Moonshot/Kimi)
+    # For streaming, add stream_options for usage tracking
     if is_stream and req_data:
         req_data = req_data.copy()
         if "stream_options" not in req_data:
@@ -85,9 +73,13 @@ async def _proxy_to_upstream(
         body = json.dumps(req_data).encode("utf-8")
 
     if is_stream:
-        return await _handle_stream(http_client, upstream_url, headers, body, req_data, key_info, client_format)
+        return await _handle_stream(
+            http_client, upstream_url, headers, body, req_data, key_info, client_format
+        )
     else:
-        return await _handle_non_stream(http_client, upstream_url, headers, body, req_data, key_info, client_format)
+        return await _handle_non_stream(
+            http_client, upstream_url, headers, body, req_data, key_info, client_format
+        )
 
 
 # ── Stream handler ──
@@ -114,7 +106,6 @@ async def _handle_stream(
             error_json = {"error": error_body.decode("utf-8", errors="ignore")}
         return JSONResponse(content=error_json, status_code=upstream_resp.status_code)
 
-    # Usage tracking wrapper
     input_tokens = 0
     output_tokens = 0
     model = ""
@@ -130,7 +121,6 @@ async def _handle_stream(
                         continue
                     try:
                         d = json.loads(line[6:])
-
                         if client_format == "anthropic":
                             msg = d.get("message", {})
                             if isinstance(msg, dict) and "usage" in msg:
@@ -159,7 +149,6 @@ async def _handle_stream(
                 await upstream_resp.aclose()
             except Exception:
                 pass
-
         if input_tokens or output_tokens:
             record_usage(key_info["key"], input_tokens, output_tokens, model)
 
@@ -185,18 +174,15 @@ async def _handle_non_stream(
 ):
     resp = await client.request("POST", url, headers=headers, content=body)
 
-    # Extract usage
     try:
         resp_data = resp.json()
         usage = resp_data.get("usage", {})
-
         if client_format == "anthropic":
             input_tokens = usage.get("input_tokens", 0) or 0
             output_tokens = usage.get("output_tokens", 0) or 0
         else:
             input_tokens = usage.get("prompt_tokens", 0) or 0
             output_tokens = usage.get("completion_tokens", 0) or 0
-
         model = resp_data.get("model", "")
         if input_tokens or output_tokens:
             record_usage(key_info["key"], input_tokens, output_tokens, model)
@@ -209,147 +195,145 @@ async def _handle_non_stream(
         return JSONResponse(content={"error": resp.text}, status_code=resp.status_code)
 
 
-# ── Route Handlers ──
+# ── Resolve + ACL check helper ──
 
 
-@app.post("/v1/messages")
-async def post_messages(request: Request, key_info: dict = Depends(require_api_key)):
-    """Anthropic Messages API — route to anthropic-format models."""
-    body = await request.body()
-    req_data = None
-    is_stream = False
+def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "openai"):
+    """Resolve model to provider and check access."""
+    provider, provider_id = resolve_model(model_id, _providers)
 
-    if body:
-        try:
-            req_data = json.loads(body)
-            is_stream = req_data.get("stream", False)
-        except Exception:
-            pass
-
-    model_id = req_data.get("model", "") if req_data else ""
-    log.info(f"[anthropic] Request for model: {model_id}")
-
-    model_config = _get_model_config(model_id)
-    if not model_config:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "type": "error",
-                "error": {
-                    "type": "invalid_request_error",
-                    "message": f"Model '{model_id}' is not available. Use GET /v1/models to list available models.",
+    if not provider:
+        if error_format == "anthropic":
+            return None, JSONResponse(
+                status_code=400,
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": f"Model '{model_id}' is not available.",
+                    },
                 },
-            },
-        )
-
-    if not check_model_access(key_info, model_id):
-        return JSONResponse(
-            status_code=403,
-            content={
-                "type": "error",
-                "error": {
-                    "type": "permission_error",
-                    "message": f"Your API key does not have access to model '{model_id}'.",
-                },
-            },
-        )
-
-    if model_config["format"] != "anthropic":
-        return JSONResponse(
-            status_code=400,
-            content={
-                "type": "error",
-                "error": {
-                    "type": "invalid_request_error",
-                    "message": f"Model '{model_id}' uses {model_config['format']} format. Use /v1/chat/completions instead.",
-                },
-            },
-        )
-
-    return await _proxy_to_upstream(model_config, request, body, req_data, key_info, is_stream, "anthropic")
-
-
-@app.post("/v1/chat/completions")
-async def post_chat_completions(request: Request, key_info: dict = Depends(require_api_key)):
-    """OpenAI Chat Completions API — route to openai-format models."""
-    body = await request.body()
-    req_data = None
-    is_stream = False
-
-    if body:
-        try:
-            req_data = json.loads(body)
-            is_stream = req_data.get("stream", False)
-        except Exception:
-            pass
-
-    model_id = req_data.get("model", "") if req_data else ""
-    log.info(f"[openai] Request for model: {model_id}")
-
-    model_config = _get_model_config(model_id)
-    if not model_config:
-        return JSONResponse(
+            )
+        return None, JSONResponse(
             status_code=400,
             content={
                 "error": {
-                    "message": f"Model '{model_id}' is not available. Use GET /v1/models to list available models.",
+                    "message": f"Model '{model_id}' is not available.",
                     "type": "invalid_request_error",
                     "code": "model_not_found",
                 }
             },
         )
 
-    if not check_model_access(key_info, model_id):
-        return JSONResponse(
+    if not check_provider_access(key_info, provider_id):
+        if error_format == "anthropic":
+            return None, JSONResponse(
+                status_code=403,
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "permission_error",
+                        "message": f"Your API key does not have access to provider '{provider_id}'.",
+                    },
+                },
+            )
+        return None, JSONResponse(
             status_code=403,
             content={
                 "error": {
-                    "message": f"Your API key does not have access to model '{model_id}'.",
+                    "message": f"Your API key does not have access to provider '{provider_id}'.",
                     "type": "permission_error",
-                    "code": "model_access_denied",
+                    "code": "provider_access_denied",
                 }
             },
         )
 
-    if model_config["format"] != "openai":
+    return provider, None
+
+
+# ── Route Handlers ──
+
+
+@app.post("/v1/messages")
+async def post_messages(request: Request, key_info: dict = Depends(require_api_key)):
+    """Anthropic Messages API."""
+    body = await request.body()
+    req_data = json.loads(body) if body else {}
+    is_stream = req_data.get("stream", False)
+    model_id = req_data.get("model", "")
+    log.info(f"[anthropic] Request for model: {model_id}")
+
+    provider, error = _resolve_and_check(model_id, key_info, "anthropic")
+    if error:
+        return error
+    if provider.get("format") != "anthropic":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": f"Model '{model_id}' uses {provider.get('format')} format. Use /v1/chat/completions.",
+                },
+            },
+        )
+    return await _proxy_to_upstream(
+        provider, request, body, req_data, key_info, is_stream, "anthropic"
+    )
+
+
+@app.post("/v1/chat/completions")
+async def post_chat_completions(
+    request: Request, key_info: dict = Depends(require_api_key)
+):
+    """OpenAI Chat Completions API."""
+    body = await request.body()
+    req_data = json.loads(body) if body else {}
+    is_stream = req_data.get("stream", False)
+    model_id = req_data.get("model", "")
+    log.info(f"[openai] Request for model: {model_id}")
+
+    provider, error = _resolve_and_check(model_id, key_info, "openai")
+    if error:
+        return error
+    if provider.get("format") != "openai":
         return JSONResponse(
             status_code=400,
             content={
                 "error": {
-                    "message": f"Model '{model_id}' uses {model_config['format']} format. Use /v1/messages instead.",
+                    "message": f"Model '{model_id}' uses {provider.get('format')} format. Use /v1/messages.",
                     "type": "invalid_request_error",
                     "code": "wrong_endpoint",
                 }
             },
         )
-
-    return await _proxy_to_upstream(model_config, request, body, req_data, key_info, is_stream, "openai")
+    return await _proxy_to_upstream(
+        provider, request, body, req_data, key_info, is_stream, "openai"
+    )
 
 
 @app.get("/v1/models")
 async def list_models(key_info: dict = Depends(require_api_key)):
-    """List all available models from the registry."""
-    global _models_registry
-    if not _models_registry:
-        _models_registry = get_models_registry()
+    """List available models (filtered by user's provider access)."""
+    accessible_ids = set(get_accessible_providers(key_info, _providers).keys())
 
-    created_time = 1739347200  # 2025-02-12T00:00:00Z
-
-    accessible = get_accessible_models(key_info, _models_registry)
     models = []
-    for model_id, config in accessible.items():
-        models.append({
-            "id": model_id,
-            "object": "model",
-            "created": created_time,
-            "owned_by": config.get("owned_by", "system"),
-            "format": config["format"],
-        })
+    for m in get_known_models():
+        if m.get("provider") in accessible_ids:
+            models.append(
+                {
+                    "id": m["id"],
+                    "object": "model",
+                    "created": 1739347200,
+                    "owned_by": m.get("owned_by", "unknown"),
+                    "provider": m.get("provider", ""),
+                }
+            )
 
     return JSONResponse(content={"object": "list", "data": models})
 
 
-# ── Admin routes ──
+# ── Admin + Health routes ──
 
 app.post("/admin/keys")(admin_handlers.admin_create_key)
 app.get("/admin/keys")(admin_handlers.admin_list_keys)

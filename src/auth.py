@@ -80,21 +80,20 @@ def create_api_key(name: str) -> tuple[str, dict]:
     return api_key, key_info
 
 
-def check_model_access(key_info: dict, model_id: str) -> bool:
-    """Check if a key has access to a specific model.
+def check_provider_access(key_info: dict, provider_id: str) -> bool:
+    """Check if a key has access to a specific provider.
 
-    If 'allowed_models' is not set, the key can access all models.
-    If set, only the listed models are accessible.
+    If allowed_providers is not set, the key can access all providers.
     """
-    allowed = key_info.get("allowed_models")
+    allowed = key_info.get("allowed_providers")
     if not allowed:
-        return True  # No restriction — access all models
-    return model_id in allowed
+        return True
+    return provider_id in allowed
 
 
-def get_accessible_models(key_info: dict, all_models: dict) -> dict:
-    """Filter model registry to only models this key can access."""
-    allowed = key_info.get("allowed_models")
+def get_accessible_providers(key_info: dict, all_providers: dict) -> dict:
+    """Filter providers to only those this key can access."""
+    allowed = key_info.get("allowed_providers")
     if not allowed:
-        return all_models
-    return {k: v for k, v in all_models.items() if k in allowed}
+        return all_providers
+    return {k: v for k, v in all_providers.items() if k in allowed}
