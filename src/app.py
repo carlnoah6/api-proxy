@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import admin as admin_handlers
 from . import health as health_module
-from .auth import require_api_key
+from .auth import check_model_access, get_accessible_models, require_api_key
 from .config import get_models_registry, log
 from .usage import record_usage
 
@@ -242,6 +242,18 @@ async def post_messages(request: Request, key_info: dict = Depends(require_api_k
             },
         )
 
+    if not check_model_access(key_info, model_id):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "type": "error",
+                "error": {
+                    "type": "permission_error",
+                    "message": f"Your API key does not have access to model '{model_id}'.",
+                },
+            },
+        )
+
     if model_config["format"] != "anthropic":
         return JSONResponse(
             status_code=400,
@@ -287,6 +299,18 @@ async def post_chat_completions(request: Request, key_info: dict = Depends(requi
             },
         )
 
+    if not check_model_access(key_info, model_id):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": {
+                    "message": f"Your API key does not have access to model '{model_id}'.",
+                    "type": "permission_error",
+                    "code": "model_access_denied",
+                }
+            },
+        )
+
     if model_config["format"] != "openai":
         return JSONResponse(
             status_code=400,
@@ -311,8 +335,9 @@ async def list_models(key_info: dict = Depends(require_api_key)):
 
     created_time = 1739347200  # 2025-02-12T00:00:00Z
 
+    accessible = get_accessible_models(key_info, _models_registry)
     models = []
-    for model_id, config in _models_registry.items():
+    for model_id, config in accessible.items():
         models.append({
             "id": model_id,
             "object": "model",
