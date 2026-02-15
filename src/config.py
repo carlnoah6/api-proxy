@@ -31,13 +31,13 @@ LARK_TOKEN_FILE = os.environ.get(
 )
 
 # ── Upstream Provider API Keys ──
-CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "sk-luna-2026-openclaw")
+AIX_API_KEY = os.environ.get("AIX_API_KEY", "")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 KIMI_API_KEY = os.environ.get("KIMI_API_KEY", "")
 
 # ── API Key env mapping ──
 _API_KEY_MAP = {
-    "CLAUDE_API_KEY": CLAUDE_API_KEY,
+    "AIX_API_KEY": AIX_API_KEY,
     "DEEPSEEK_API_KEY": DEEPSEEK_API_KEY,
     "KIMI_API_KEY": KIMI_API_KEY,
 }

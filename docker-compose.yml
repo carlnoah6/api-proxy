@@ -13,6 +13,6 @@ services:
       - KEYS_FILE=/app/keys.json
       - MODELS_CONFIG=/app/models.json
       - WEBHOOK_SECRET_FILE=/app/webhook_secret.txt
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - AIX_API_KEY=${AIX_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - KIMI_API_KEY=${KIMI_API_KEY}
