@@ -19,12 +19,14 @@ class TestNeedsToolSanitization:
         })
 
     def test_with_tool_message(self):
-        assert needs_tool_sanitization("aiberm", "claude-opus-4-6", {
+        # Disabled: Aiberm fixed Claude tool history bug (2026-02-17)
+        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6", {
             "messages": [{"role": "tool", "content": "result", "tool_call_id": "tc1"}]
         })
 
     def test_with_tool_calls(self):
-        assert needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
+        # Disabled: Aiberm fixed Claude tool history bug (2026-02-17)
+        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
             "messages": [{"role": "assistant", "tool_calls": [{"id": "tc1"}]}]
         })
 
