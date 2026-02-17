@@ -43,7 +43,7 @@ def sanitize_tool_history(req_data: dict) -> dict:
         role = msg.get("role", "")
 
         if role in ("system", "user"):
-            sanitized.append(msg)
+            sanitized.append(msg.copy())
             i += 1
             continue
 
@@ -97,7 +97,7 @@ def sanitize_tool_history(req_data: dict) -> dict:
             continue
 
         if role == "assistant":
-            sanitized.append(msg)
+            sanitized.append(msg.copy())
             i += 1
             continue
 

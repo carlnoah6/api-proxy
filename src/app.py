@@ -250,6 +250,7 @@ def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "opena
             },
         )
 
+    provider = provider.copy()
     provider["_id"] = provider_id
     return provider, None
 
