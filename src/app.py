@@ -68,8 +68,11 @@ async def _proxy_to_upstream(
     _model = req_data.get("model", "") if req_data else ""
     if req_data and needs_tool_sanitization(_pid, _model, req_data):
         log.info(f"[tool-sanitize] Sanitizing tool history for {_model} on {_pid}")
-        req_data = sanitize_tool_history(req_data)
-        body = json.dumps(req_data).encode("utf-8")
+        try:
+            req_data = sanitize_tool_history(req_data)
+            body = json.dumps(req_data).encode("utf-8")
+        except Exception as e:
+            log.warning(f"[tool-sanitize] Failed, sending original: {e}")
 
     upstream_url = f"{provider['base_url']}{provider['chat_endpoint']}"
 
