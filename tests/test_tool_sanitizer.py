@@ -1,5 +1,4 @@
 """Tests for tool_sanitizer module."""
-import pytest
 from src.tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
 
 
