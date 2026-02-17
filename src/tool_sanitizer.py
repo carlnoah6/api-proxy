@@ -16,14 +16,16 @@ log = logging.getLogger("api-proxy")
 
 
 def needs_tool_sanitization(provider_id: str, model: str, req_data: dict) -> bool:
-    """Check if request needs tool history sanitization."""
-    if provider_id != "aiberm":
-        return False
-    if not model.lower().startswith("claude"):
-        return False
-    for msg in req_data.get("messages", []):
-        if msg.get("role") == "tool" or msg.get("tool_calls"):
-            return True
+    """Check if request needs tool history sanitization.
+
+    Disabled as of 2026-02-17: Aiberm has fixed the Claude tool history bug.
+    Tool sanitization was converting tool_calls/tool_result into text summaries,
+    which caused Claude to loop infinitely (calling the same tool repeatedly
+    instead of generating a final text response).
+
+    Keeping the module and function signature intact for easy re-enablement
+    if Aiberm regresses.
+    """
     return False
 
 
