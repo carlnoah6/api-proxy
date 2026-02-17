@@ -10,8 +10,8 @@ from . import admin as admin_handlers
 from . import health as health_module
 from .auth import get_accessible_providers, require_api_key
 from .config import get_known_models, get_providers, get_routing, log, resolve_model
-from .usage import record_usage
 from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
+from .usage import record_usage
 
 # ── Providers (loaded at startup, refreshed from config as fallback) ──
 
