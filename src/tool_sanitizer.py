@@ -10,7 +10,6 @@ tool interactions trigger the bug. GPT models are unaffected.
 This module converts tool interactions in message history into plain text
 summaries, preserving the tools definition so new tool calls still work.
 """
-import json
 import logging
 
 log = logging.getLogger("api-proxy")
@@ -66,7 +65,8 @@ def sanitize_tool_history(req_data: dict) -> dict:
             for tc in tool_calls:
                 func = tc.get("function", {})
                 name = func.get("name", "unknown")
-                args = func.get("arguments", "{}")
+                raw_args = func.get("arguments", "{}")
+                args = raw_args if isinstance(raw_args, str) else str(raw_args)
                 tc_id = tc.get("id", "")
 
                 # Find matching tool result in subsequent messages
