@@ -11,6 +11,7 @@ from . import health as health_module
 from .auth import get_accessible_providers, require_api_key
 from .config import get_known_models, get_providers, get_routing, log, resolve_model
 from .usage import record_usage
+from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
 
 # ── Providers (loaded at startup, refreshed from config as fallback) ──
 
@@ -60,6 +61,15 @@ async def _proxy_to_upstream(
 ):
     """Proxy a request to the correct upstream based on provider config."""
     http_client: httpx.AsyncClient = request.app.state.http_client
+
+    # Sanitize tool history for Claude on Aiberm
+    # Aiberm bug: rejects tool_calls/tool_result in history for Claude models
+    _pid = provider.get("_id", "")
+    _model = req_data.get("model", "") if req_data else ""
+    if req_data and needs_tool_sanitization(_pid, _model, req_data):
+        log.info(f"[tool-sanitize] Sanitizing tool history for {_model} on {_pid}")
+        req_data = sanitize_tool_history(req_data)
+        body = json.dumps(req_data).encode("utf-8")
 
     upstream_url = f"{provider['base_url']}{provider['chat_endpoint']}"
 
@@ -240,6 +250,7 @@ def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "opena
             },
         )
 
+    provider["_id"] = provider_id
     return provider, None
 
 
