@@ -8,8 +8,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import admin as admin_handlers
 from . import health as health_module
-from .auth import check_provider_access, get_accessible_providers, require_api_key
-from .config import get_known_models, get_providers, log, resolve_model
+from .auth import get_accessible_providers, require_api_key
+from .config import get_known_models, get_providers, get_routing, log, resolve_model
 from .usage import record_usage
 
 # ── Providers (loaded at startup, refreshed from config as fallback) ──
@@ -207,8 +207,15 @@ async def _handle_non_stream(
 
 
 def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "openai"):
-    """Resolve model to provider and check access."""
-    provider, provider_id = resolve_model(model_id, _get_providers())
+    """Resolve model to provider and check access.
+
+    Passes allowed_providers into resolve_model so the routing chain
+    automatically skips providers the user can't access, falling back
+    to the next viable provider in the chain.
+    """
+    allowed = key_info.get("allowed_providers")
+    allowed_set = set(allowed) if allowed else None
+    provider, provider_id = resolve_model(model_id, _get_providers(), allowed_set)
 
     if not provider:
         if error_format == "anthropic":
@@ -229,29 +236,6 @@ def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "opena
                     "message": f"Model '{model_id}' is not available.",
                     "type": "invalid_request_error",
                     "code": "model_not_found",
-                }
-            },
-        )
-
-    if not check_provider_access(key_info, provider_id):
-        if error_format == "anthropic":
-            return None, JSONResponse(
-                status_code=403,
-                content={
-                    "type": "error",
-                    "error": {
-                        "type": "permission_error",
-                        "message": f"Your API key does not have access to provider '{provider_id}'.",
-                    },
-                },
-            )
-        return None, JSONResponse(
-            status_code=403,
-            content={
-                "error": {
-                    "message": f"Your API key does not have access to provider '{provider_id}'.",
-                    "type": "permission_error",
-                    "code": "provider_access_denied",
                 }
             },
         )
@@ -324,13 +308,32 @@ async def post_chat_completions(
 async def list_models(key_info: dict = Depends(require_api_key)):
     """List available models (filtered by user's provider access)."""
     accessible_ids = set(get_accessible_providers(key_info, _get_providers()).keys())
+    routing = get_routing()
 
     models = []
+    seen = set()
     for m in get_known_models():
-        if m.get("provider") in accessible_ids:
+        mid = m["id"]
+        if mid in seen:
+            continue
+        # Check: is this model reachable via routing chain for this user?
+        model_lower = mid.lower()
+        reachable = False
+        for prefix, chain in routing.items():
+            if model_lower.startswith(prefix.lower()):
+                for pid in chain:
+                    if pid in accessible_ids:
+                        reachable = True
+                        break
+                break
+        # Fallback: direct provider check
+        if not reachable and m.get("provider") in accessible_ids:
+            reachable = True
+        if reachable:
+            seen.add(mid)
             models.append(
                 {
-                    "id": m["id"],
+                    "id": mid,
                     "object": "model",
                     "created": 1739347200,
                     "owned_by": m.get("owned_by", "unknown"),
