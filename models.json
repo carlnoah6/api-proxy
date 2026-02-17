@@ -7,10 +7,7 @@
       "api_key_env": "KIMI_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "model_prefixes": [
-        "kimi",
-        "moonshot"
-      ]
+      "model_prefixes": ["kimi", "moonshot"]
     },
     "deepseek": {
       "name": "DeepSeek",
@@ -19,9 +16,7 @@
       "api_key_env": "DEEPSEEK_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "model_prefixes": [
-        "deepseek"
-      ]
+      "model_prefixes": ["deepseek"]
     },
     "zhipu": {
       "name": "ZAI / Zhipu (GLM)",
@@ -30,9 +25,7 @@
       "api_key_env": "ZAI_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "model_prefixes": [
-        "glm"
-      ]
+      "model_prefixes": ["glm"]
     },
     "openai": {
       "name": "OpenAI (ChatGPT)",
@@ -41,13 +34,7 @@
       "api_key_env": "JOSE_OPENAI_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "model_prefixes": [
-        "gpt",
-        "o1",
-        "o3",
-        "o4",
-        "chatgpt"
-      ]
+      "model_prefixes": ["gpt", "o1", "o3", "o4", "chatgpt"]
     },
     "google": {
       "name": "Google (Gemini)",
@@ -56,56 +43,49 @@
       "api_key_env": "JOSE_GEMINI_API_KEY",
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
-      "model_prefixes": [
-        "gemini"
-      ]
+      "model_prefixes": ["gemini"]
+    },
+    "aiberm": {
+      "name": "Aiberm (Aggregator)",
+      "format": "openai",
+      "base_url": "https://aiberm.com/v1",
+      "api_key_env": "AIBERM_API_KEY",
+      "auth_header": "authorization_bearer",
+      "chat_endpoint": "/chat/completions",
+      "model_prefixes": []
     }
   },
+  "routing": {
+    "kimi":     ["moonshot"],
+    "moonshot": ["moonshot"],
+    "deepseek": ["deepseek"],
+    "glm":      ["zhipu"],
+    "gpt":      ["openai", "aiberm"],
+    "o1":       ["openai", "aiberm"],
+    "o3":       ["openai", "aiberm"],
+    "o4":       ["openai", "aiberm"],
+    "chatgpt":  ["openai", "aiberm"],
+    "gemini":   ["google", "aiberm"],
+    "claude":   ["aiberm"],
+    "grok":     ["aiberm"],
+    "minimax":  ["aiberm"],
+    "mimo":     ["aiberm"],
+    "xiaomi":   ["aiberm"]
+  },
   "known_models": [
-    {
-      "id": "kimi-k2.5",
-      "provider": "moonshot",
-      "owned_by": "moonshot"
-    },
-    {
-      "id": "deepseek-chat",
-      "provider": "deepseek",
-      "owned_by": "deepseek"
-    },
-    {
-      "id": "deepseek-reasoner",
-      "provider": "deepseek",
-      "owned_by": "deepseek"
-    },
-    {
-      "id": "glm-5",
-      "provider": "zhipu",
-      "owned_by": "zhipu"
-    },
-    {
-      "id": "glm-4.7",
-      "provider": "zhipu",
-      "owned_by": "zhipu"
-    },
-    {
-      "id": "gpt-4o",
-      "provider": "openai",
-      "owned_by": "openai"
-    },
-    {
-      "id": "gpt-4o-mini",
-      "provider": "openai",
-      "owned_by": "openai"
-    },
-    {
-      "id": "gemini-2.5-flash",
-      "provider": "google",
-      "owned_by": "google"
-    },
-    {
-      "id": "gemini-2.5-pro",
-      "provider": "google",
-      "owned_by": "google"
-    }
+    {"id": "kimi-k2.5", "provider": "moonshot", "owned_by": "moonshot"},
+    {"id": "deepseek-chat", "provider": "deepseek", "owned_by": "deepseek"},
+    {"id": "deepseek-reasoner", "provider": "deepseek", "owned_by": "deepseek"},
+    {"id": "glm-5", "provider": "zhipu", "owned_by": "zhipu"},
+    {"id": "glm-4.7", "provider": "zhipu", "owned_by": "zhipu"},
+    {"id": "gpt-4o", "provider": "openai", "owned_by": "openai"},
+    {"id": "gpt-4o-mini", "provider": "openai", "owned_by": "openai"},
+    {"id": "gpt-5", "provider": "openai", "owned_by": "openai"},
+    {"id": "gpt-5.2-chat", "provider": "openai", "owned_by": "openai"},
+    {"id": "gemini-2.5-flash", "provider": "google", "owned_by": "google"},
+    {"id": "gemini-2.5-pro", "provider": "google", "owned_by": "google"},
+    {"id": "claude-opus-4-6-thinking", "provider": "aiberm", "owned_by": "anthropic"},
+    {"id": "claude-sonnet-4-5", "provider": "aiberm", "owned_by": "anthropic"},
+    {"id": "grok-4.1-fast-reasoning", "provider": "aiberm", "owned_by": "xai"}
   ]
 }

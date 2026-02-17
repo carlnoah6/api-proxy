@@ -35,12 +35,12 @@ def _load_models_json() -> dict:
     """Load the raw models.json file."""
     if not MODELS_CONFIG_FILE.exists():
         log.error(f"Models config not found: {MODELS_CONFIG_FILE}")
-        return {"providers": {}, "known_models": []}
+        return {"providers": {}, "known_models": [], "routing": {}}
     try:
         return json.loads(MODELS_CONFIG_FILE.read_text())
     except Exception as e:
         log.error(f"Failed to load models config: {e}")
-        return {"providers": {}, "known_models": []}
+        return {"providers": {}, "known_models": [], "routing": {}}
 
 
 def get_providers() -> dict[str, dict]:
@@ -59,28 +59,60 @@ def get_known_models() -> list[dict]:
     return _load_models_json().get("known_models", [])
 
 
-def resolve_model(model_id: str, providers: dict) -> tuple[dict | None, str | None]:
+def get_routing() -> dict[str, list[str]]:
+    """Return routing table: prefix -> [provider_id, ...]."""
+    return _load_models_json().get("routing", {})
+
+
+def resolve_model(
+    model_id: str, providers: dict, allowed_providers: set | None = None
+) -> tuple[dict | None, str | None]:
     """Resolve a model ID to (provider_config, provider_id).
 
-    1. Try exact match in known_models
-    2. Try prefix match against provider model_prefixes
+    Uses the routing priority chain:
+    1. Find matching prefix in routing table
+    2. Walk the provider chain in order
+    3. Skip providers the user doesn't have access to (if allowed_providers given)
+    4. Skip providers without a valid API key
+    5. Return first viable provider
+
+    Falls back to direct prefix match on providers if no routing entry found.
     Returns (None, None) if no match.
     """
     data = _load_models_json()
-
-    # Exact match in known_models
-    for m in data.get("known_models", []):
-        if m["id"] == model_id:
-            pid = m["provider"]
-            if pid in providers:
-                return providers[pid], pid
-            return None, None
-
-    # Prefix match against providers
+    routing = data.get("routing", {})
     model_lower = model_id.lower()
+
+    # Find matching routing entry (longest prefix match)
+    matched_prefix = ""
+    matched_chain = []
+    for prefix, chain in routing.items():
+        if model_lower.startswith(prefix.lower()) and len(prefix) > len(matched_prefix):
+            matched_prefix = prefix
+            matched_chain = chain
+
+    if matched_chain:
+        for pid in matched_chain:
+            if pid not in providers:
+                continue
+            if allowed_providers is not None and pid not in allowed_providers:
+                continue
+            p = providers[pid]
+            if not p.get("api_key"):
+                log.debug(f"Skipping provider {pid}: no API key")
+                continue
+            return p, pid
+        # Chain exhausted — no viable provider
+        return None, None
+
+    # Fallback: direct prefix match on provider model_prefixes
     for pid, p in providers.items():
+        if allowed_providers is not None and pid not in allowed_providers:
+            continue
         for prefix in p.get("model_prefixes", []):
             if model_lower.startswith(prefix.lower()):
+                if not p.get("api_key"):
+                    continue
                 return p, pid
 
     return None, None
