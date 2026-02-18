@@ -16,16 +16,21 @@ log = logging.getLogger("api-proxy")
 
 
 def needs_tool_sanitization(provider_id: str, model: str, req_data: dict) -> bool:
-    """Check if request needs tool history sanitization.
+    """Check if request needs tool history sanitization on 400 retry.
 
-    Disabled 2026-02-18: Sanitization causes Claude to loop infinitely —
-    it sees "[Previously executed ...]" text summaries and re-invokes the
-    same tools. The Aiberm 400 "Input is too long" bug is intermittent
-    and auto-retry handles it; the loop is worse.
-
-    Keeping improved summary format for potential future use.
+    Only called when upstream returns 400 — NOT on first request.
+    This avoids the infinite loop problem (Claude seeing sanitized text
+    and re-invoking tools) while still handling Aiberm intermittent 400s.
     """
-    return False
+    if not isinstance(model, str) or not isinstance(req_data.get("messages", None), list):
+        return False
+    is_aiberm = "aiberm" in str(provider_id).lower()
+    is_claude = "claude" in model.lower()
+    has_tools = any(
+        isinstance(m, dict) and (m.get("role") == "tool" or m.get("tool_calls"))
+        for m in req_data.get("messages", [])
+    )
+    return is_aiberm and is_claude and has_tools
 
 
 def sanitize_tool_history(req_data: dict) -> dict:

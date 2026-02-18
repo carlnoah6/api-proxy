@@ -19,14 +19,14 @@ class TestNeedsToolSanitization:
         })
 
     def test_with_tool_message(self):
-        # Disabled: causes Claude tool-call loops
-        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6", {
+        # Re-enabled for 400-retry only (not pre-sanitize)
+        assert needs_tool_sanitization("aiberm", "claude-opus-4-6", {
             "messages": [{"role": "tool", "content": "result", "tool_call_id": "tc1"}]
         })
 
     def test_with_tool_calls(self):
-        # Disabled: causes Claude tool-call loops
-        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
+        # Re-enabled for 400-retry only (not pre-sanitize)
+        assert needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
             "messages": [{"role": "assistant", "tool_calls": [{"id": "tc1"}]}]
         })
 
