@@ -19,14 +19,14 @@ class TestNeedsToolSanitization:
         })
 
     def test_with_tool_message(self):
-        # Re-enabled: Aiberm fix incomplete (2026-02-18)
-        assert needs_tool_sanitization("aiberm", "claude-opus-4-6", {
+        # Disabled: causes Claude tool-call loops
+        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6", {
             "messages": [{"role": "tool", "content": "result", "tool_call_id": "tc1"}]
         })
 
     def test_with_tool_calls(self):
-        # Re-enabled: Aiberm fix incomplete (2026-02-18)
-        assert needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
+        # Disabled: causes Claude tool-call loops
+        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
             "messages": [{"role": "assistant", "tool_calls": [{"id": "tc1"}]}]
         })
 
