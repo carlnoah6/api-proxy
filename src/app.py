@@ -62,17 +62,9 @@ async def _proxy_to_upstream(
     """Proxy a request to the correct upstream based on provider config."""
     http_client: httpx.AsyncClient = request.app.state.http_client
 
-    # Sanitize tool history for Claude on Aiberm
-    # Aiberm bug: rejects tool_calls/tool_result in history for Claude models
+    # Store provider info for potential 400-retry-with-sanitize
     _pid = provider.get("_id", "")
     _model = req_data.get("model", "") if req_data else ""
-    if req_data and needs_tool_sanitization(_pid, _model, req_data):
-        log.info(f"[tool-sanitize] Sanitizing tool history for {_model} on {_pid}")
-        try:
-            req_data = sanitize_tool_history(req_data)
-            body = json.dumps(req_data).encode("utf-8")
-        except Exception as e:
-            log.warning(f"[tool-sanitize] Failed, sending original: {e}")
 
     upstream_url = f"{provider['base_url']}{provider['chat_endpoint']}"
 
@@ -95,11 +87,13 @@ async def _proxy_to_upstream(
 
     if is_stream:
         return await _handle_stream(
-            http_client, upstream_url, headers, body, req_data, key_info, client_format
+            http_client, upstream_url, headers, body, req_data, key_info, client_format,
+            provider_id=_pid, model_name=_model,
         )
     else:
         return await _handle_non_stream(
-            http_client, upstream_url, headers, body, req_data, key_info, client_format
+            http_client, upstream_url, headers, body, req_data, key_info, client_format,
+            provider_id=_pid, model=_model,
         )
 
 
@@ -114,6 +108,8 @@ async def _handle_stream(
     req_data: dict | None,
     key_info: dict,
     client_format: str,
+    provider_id: str = "",
+    model_name: str = "",
 ):
     upstream_req = client.build_request("POST", url, headers=headers, content=body)
     upstream_resp = await client.send(upstream_req, stream=True)
@@ -121,11 +117,47 @@ async def _handle_stream(
     if upstream_resp.status_code != 200:
         error_body = await upstream_resp.aread()
         await upstream_resp.aclose()
-        try:
-            error_json = json.loads(error_body)
-        except Exception:
-            error_json = {"error": error_body.decode("utf-8", errors="ignore")}
-        return JSONResponse(content=error_json, status_code=upstream_resp.status_code)
+
+        # Retry on 400 with tool sanitization (Aiberm Claude bug)
+        if upstream_resp.status_code == 400 and req_data and provider_id:
+            from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
+            if needs_tool_sanitization(provider_id, model_name, req_data):
+                log.info(f"[400-retry] Got 400 (stream) for {model_name} on {provider_id}, retrying with sanitized tool history")
+                try:
+                    sanitized = sanitize_tool_history(req_data)
+                    retry_body = json.dumps(sanitized).encode("utf-8")
+                    retry_req = client.build_request("POST", url, headers=headers, content=retry_body)
+                    upstream_resp = await client.send(retry_req, stream=True)
+                    if upstream_resp.status_code == 200:
+                        log.info(f"[400-retry] Stream retry succeeded for {model_name}")
+                        # Fall through to normal streaming below
+                    else:
+                        retry_error = await upstream_resp.aread()
+                        await upstream_resp.aclose()
+                        try:
+                            error_json = json.loads(retry_error)
+                        except Exception:
+                            error_json = {"error": retry_error.decode("utf-8", errors="ignore")}
+                        return JSONResponse(content=error_json, status_code=upstream_resp.status_code)
+                except Exception as e:
+                    log.warning(f"[400-retry] Stream sanitize failed: {e}")
+                    try:
+                        error_json = json.loads(error_body)
+                    except Exception:
+                        error_json = {"error": error_body.decode("utf-8", errors="ignore")}
+                    return JSONResponse(content=error_json, status_code=400)
+            else:
+                try:
+                    error_json = json.loads(error_body)
+                except Exception:
+                    error_json = {"error": error_body.decode("utf-8", errors="ignore")}
+                return JSONResponse(content=error_json, status_code=upstream_resp.status_code)
+        else:
+            try:
+                error_json = json.loads(error_body)
+            except Exception:
+                error_json = {"error": error_body.decode("utf-8", errors="ignore")}
+            return JSONResponse(content=error_json, status_code=upstream_resp.status_code)
 
     input_tokens = 0
     output_tokens = 0
@@ -192,8 +224,26 @@ async def _handle_non_stream(
     req_data: dict | None,
     key_info: dict,
     client_format: str,
+    provider_id: str = "",
+    model: str = "",
 ):
     resp = await client.request("POST", url, headers=headers, content=body)
+
+    # Retry on 400 with tool sanitization (Aiberm Claude bug)
+    if resp.status_code == 400 and req_data and provider_id:
+        from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
+        if needs_tool_sanitization(provider_id, model, req_data):
+            log.info(f"[400-retry] Got 400 for {model} on {provider_id}, retrying with sanitized tool history")
+            try:
+                sanitized = sanitize_tool_history(req_data)
+                retry_body = json.dumps(sanitized).encode("utf-8")
+                resp = await client.request("POST", url, headers=headers, content=retry_body)
+                if resp.status_code == 200:
+                    log.info(f"[400-retry] Retry succeeded for {model}")
+                else:
+                    log.warning(f"[400-retry] Retry also failed: {resp.status_code}")
+            except Exception as e:
+                log.warning(f"[400-retry] Sanitize failed, returning original 400: {e}")
 
     try:
         resp_data = resp.json()
