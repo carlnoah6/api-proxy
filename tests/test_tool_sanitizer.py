@@ -19,14 +19,14 @@ class TestNeedsToolSanitization:
         })
 
     def test_with_tool_message(self):
-        # Disabled: Aiberm fixed Claude tool history bug (2026-02-17)
-        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6", {
+        # Re-enabled: Aiberm fix incomplete (2026-02-18)
+        assert needs_tool_sanitization("aiberm", "claude-opus-4-6", {
             "messages": [{"role": "tool", "content": "result", "tool_call_id": "tc1"}]
         })
 
     def test_with_tool_calls(self):
-        # Disabled: Aiberm fixed Claude tool history bug (2026-02-17)
-        assert not needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
+        # Re-enabled: Aiberm fix incomplete (2026-02-18)
+        assert needs_tool_sanitization("aiberm", "claude-opus-4-6-thinking", {
             "messages": [{"role": "assistant", "tool_calls": [{"id": "tc1"}]}]
         })
 
@@ -46,13 +46,12 @@ class TestSanitizeToolHistory:
         }
         result = sanitize_tool_history(req)
         msgs = result["messages"]
-        # Should have: system, user, assistant(text), user
         assert len(msgs) == 4
         assert msgs[0]["role"] == "system"
         assert msgs[1]["role"] == "user"
         assert msgs[2]["role"] == "assistant"
-        assert "[Used tool: exec" in msgs[2]["content"]
-        assert "[Result: file1.txt" in msgs[2]["content"]
+        assert "[Previously executed exec" in msgs[2]["content"]
+        assert "[Output was: file1.txt" in msgs[2]["content"]
         assert "Let me run that." in msgs[2]["content"]
         assert msgs[3]["role"] == "user"
         assert msgs[3]["content"] == "thanks"
@@ -68,7 +67,7 @@ class TestSanitizeToolHistory:
         result = sanitize_tool_history(req)
         msgs = result["messages"]
         assert msgs[1]["role"] == "user"
-        assert "[Previous tool result:" in msgs[1]["content"]
+        assert "[Earlier tool output:" in msgs[1]["content"]
 
     def test_preserves_normal_messages(self):
         req = {
@@ -99,10 +98,10 @@ class TestSanitizeToolHistory:
         result = sanitize_tool_history(req)
         msgs = result["messages"]
         assert len(msgs) == 4
-        assert "[Used tool: read" in msgs[2]["content"]
-        assert "[Used tool: exec" in msgs[2]["content"]
-        assert "[Result: file content]" in msgs[2]["content"]
-        assert "[Result: dir listing]" in msgs[2]["content"]
+        assert "[Previously executed read" in msgs[2]["content"]
+        assert "[Previously executed exec" in msgs[2]["content"]
+        assert "[Output was: file content]" in msgs[2]["content"]
+        assert "[Output was: dir listing]" in msgs[2]["content"]
 
     def test_merges_consecutive_same_role(self):
         req = {
@@ -115,10 +114,9 @@ class TestSanitizeToolHistory:
         }
         result = sanitize_tool_history(req)
         msgs = result["messages"]
-        # Two orphan tools -> two user messages -> merged into one
         user_msgs = [m for m in msgs if m["role"] == "user"]
-        assert len(user_msgs) == 1  # all user messages merged into one
-        assert "[Previous tool result: r1]" in user_msgs[0]["content"]
+        assert len(user_msgs) == 1
+        assert "[Earlier tool output: r1]" in user_msgs[0]["content"]
         assert "hi" in user_msgs[0]["content"]
 
     def test_truncates_long_results(self):
@@ -135,7 +133,6 @@ class TestSanitizeToolHistory:
         }
         result = sanitize_tool_history(req)
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
-        # Result should be truncated to 500 chars
         assert len(assistant_msg["content"]) < 700
 
     def test_preserves_other_fields(self):
