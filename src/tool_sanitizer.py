@@ -18,15 +18,22 @@ log = logging.getLogger("api-proxy")
 def needs_tool_sanitization(provider_id: str, model: str, req_data: dict) -> bool:
     """Check if request needs tool history sanitization.
 
-    Disabled as of 2026-02-17: Aiberm has fixed the Claude tool history bug.
-    Tool sanitization was converting tool_calls/tool_result into text summaries,
-    which caused Claude to loop infinitely (calling the same tool repeatedly
-    instead of generating a final text response).
-
-    Keeping the module and function signature intact for easy re-enablement
-    if Aiberm regresses.
+    Re-enabled 2026-02-18: Aiberm's fix is incomplete — intermittent 400
+    "Input is too long" still occurs when tool_calls appear in history.
+    Only applies to Claude models on Aiberm provider.
     """
-    return False
+    if provider_id != "aiberm":
+        return False
+    model_lower = model.lower()
+    if "claude" not in model_lower:
+        return False
+    # Only sanitize if there are actual tool messages in history
+    messages = req_data.get("messages", [])
+    has_tools = any(
+        m.get("role") == "tool" or m.get("tool_calls")
+        for m in messages
+    )
+    return has_tools
 
 
 def sanitize_tool_history(req_data: dict) -> dict:
@@ -83,9 +90,9 @@ def sanitize_tool_history(req_data: dict) -> dict:
                         tool_result = str(tr_content)[:500]
                         break
 
-                text_parts.append(f"[Used tool: {name}({args[:200]})]")
+                text_parts.append(f"[Previously executed {name} — args: {args[:200]}]")
                 if tool_result:
-                    text_parts.append(f"[Result: {tool_result}]")
+                    text_parts.append(f"[Output was: {tool_result}]")
 
             sanitized.append({
                 "role": "assistant",
@@ -112,7 +119,7 @@ def sanitize_tool_history(req_data: dict) -> dict:
                 )
             sanitized.append({
                 "role": "user",
-                "content": f"[Previous tool result: {str(content)[:500]}]"
+                "content": f"[Earlier tool output: {str(content)[:500]}]"
             })
             i += 1
             continue
