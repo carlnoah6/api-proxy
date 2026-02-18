@@ -5,8 +5,9 @@ from .auth import load_keys, save_keys
 from .config import SGT
 
 
-def record_usage(api_key: str, input_tokens: int, output_tokens: int, model: str):
-    """Record usage for an API key"""
+def record_usage(api_key: str, input_tokens: int, output_tokens: int, model: str,
+                 session_id: str = ""):
+    """Record usage for an API key, optionally tagged with a session_id."""
     data = load_keys()
     if api_key not in data["keys"]:
         return
@@ -59,4 +60,34 @@ def record_usage(api_key: str, input_tokens: int, output_tokens: int, model: str
 
     total_by_model[model]["total"] += input_tokens + output_tokens
     total_by_model[model]["requests"] += 1
+
+    # Per-session tracking (if session_id provided)
+    if session_id:
+        by_session = key_info["usage"].setdefault("by_session", {})
+        if session_id not in by_session:
+            by_session[session_id] = {
+                "input": 0, "output": 0, "requests": 0,
+                "first_seen": datetime.now(SGT).isoformat(),
+            }
+        by_session[session_id]["input"] += input_tokens
+        by_session[session_id]["output"] += output_tokens
+        by_session[session_id]["requests"] += 1
+        by_session[session_id]["last_seen"] = datetime.now(SGT).isoformat()
+
+        # Prune old sessions (keep last 200)
+        if len(by_session) > 200:
+            sorted_sessions = sorted(by_session.items(),
+                                     key=lambda x: x[1].get("last_seen", ""),
+                                     reverse=True)
+            key_info["usage"]["by_session"] = dict(sorted_sessions[:200])
+
     save_keys(data)
+
+
+def get_session_usage(api_key: str, session_id: str) -> dict | None:
+    """Get usage for a specific session."""
+    data = load_keys()
+    if api_key not in data["keys"]:
+        return None
+    by_session = data["keys"][api_key].get("usage", {}).get("by_session", {})
+    return by_session.get(session_id)

@@ -11,7 +11,7 @@ from . import health as health_module
 from .auth import get_accessible_providers, require_api_key
 from .config import get_known_models, get_providers, get_routing, log, resolve_model
 from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
-from .usage import record_usage
+from .usage import record_usage, get_session_usage
 
 # ── Providers (loaded at startup, refreshed from config as fallback) ──
 
@@ -60,6 +60,11 @@ async def _proxy_to_upstream(
     client_format: str,
 ):
     """Proxy a request to the correct upstream based on provider config."""
+    # Extract session_id: prefer X-Session-Id header, fallback to body "user" field
+    session_id = request.headers.get("x-session-id", "")
+    if not session_id and req_data:
+        session_id = req_data.get("user", "") or ""
+    key_info["_session_id"] = session_id
     http_client: httpx.AsyncClient = request.app.state.http_client
 
     # Sanitize tool history for Claude on Aiberm
@@ -171,7 +176,7 @@ async def _handle_stream(
             except Exception:
                 pass
         if input_tokens or output_tokens:
-            record_usage(key_info["key"], input_tokens, output_tokens, model)
+            record_usage(key_info["key"], input_tokens, output_tokens, model, key_info.get("_session_id", ""))
 
     return StreamingResponse(
         stream_and_count(),
@@ -206,7 +211,7 @@ async def _handle_non_stream(
             output_tokens = usage.get("completion_tokens", 0) or 0
         model = resp_data.get("model", "")
         if input_tokens or output_tokens:
-            record_usage(key_info["key"], input_tokens, output_tokens, model)
+            record_usage(key_info["key"], input_tokens, output_tokens, model, key_info.get("_session_id", ""))
     except Exception:
         pass
 
@@ -371,4 +376,5 @@ app.get("/admin/usage")(admin_handlers.admin_total_usage)
 app.get("/admin/usage/daily")(admin_handlers.admin_daily_usage)
 app.get("/admin/usage/hourly")(admin_handlers.admin_hourly_usage)
 app.get("/admin/models")(admin_handlers.admin_models_status)
+app.get("/admin/keys/{api_key}/sessions/{session_id}")(admin_handlers.admin_session_usage)
 app.get("/health")(health_module.health)

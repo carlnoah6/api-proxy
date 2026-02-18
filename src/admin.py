@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from .auth import create_api_key, load_keys, require_admin, save_keys
+from .usage import get_session_usage
 from .config import LARK_APP_ID, LARK_APP_SECRET, LARK_TOKEN_FILE, get_known_models, get_providers
 
 # ── Key Management ──
@@ -259,6 +260,18 @@ async def admin_models_status(request: Request):
         plist.append({"id": pid, "name": p.get("name", pid), "has_api_key": bool(p.get("api_key"))})
     mlist = [{"id": m["id"], "provider": m["provider"]} for m in known]
     return {"providers": plist, "known_models": mlist}
+
+
+# ── Session Usage ──
+
+
+async def admin_session_usage(api_key: str, session_id: str, request: Request):
+    """Get usage for a specific session under an API key."""
+    require_admin(request)
+    usage = get_session_usage(api_key, session_id)
+    if usage is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "usage": usage}
 
 
 # ── OAuth / Lark callbacks ──
