@@ -68,6 +68,15 @@
       "auth_header": "authorization_bearer",
       "chat_endpoint": "/chat/completions",
       "model_prefixes": []
+    },
+    "aiberm-claude": {
+      "name": "Aiberm Claude (Anthropic Native)",
+      "format": "anthropic",
+      "base_url": "https://aiberm.com/v1",
+      "api_key_env": "AIBERM_API_KEY",
+      "auth_header": "x-api-key",
+      "chat_endpoint": "/messages",
+      "model_prefixes": []
     }
   },
   "routing": {
@@ -112,7 +121,7 @@
       "aiberm"
     ],
     "claude": [
-      "aiberm"
+      "aiberm-claude"
     ],
     "grok": [
       "aiberm"

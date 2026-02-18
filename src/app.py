@@ -61,7 +61,7 @@ async def _proxy_to_upstream(
     """Proxy a request to the correct upstream based on provider config."""
     http_client: httpx.AsyncClient = request.app.state.http_client
 
-    # Store provider info for potential 400-retry-with-sanitize
+    # Store provider info for 400 retry
     _pid = provider.get("_id", "")
     _model = req_data.get("model", "") if req_data else ""
 
@@ -77,8 +77,12 @@ async def _proxy_to_upstream(
     else:
         headers["authorization"] = f"Bearer {api_key}"
 
-    # For streaming, add stream_options for usage tracking
-    if is_stream and req_data:
+    # Add anthropic-version header for Anthropic format providers
+    if provider.get("format") == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+
+    # For streaming, add stream_options for usage tracking (OpenAI only)
+    if is_stream and req_data and provider.get("format") != "anthropic":
         req_data = req_data.copy()
         if "stream_options" not in req_data:
             req_data["stream_options"] = {"include_usage": True}
@@ -210,7 +214,7 @@ async def _handle_non_stream(
 ):
     resp = await client.request("POST", url, headers=headers, content=body)
 
-    # Generic 400 retry: retry once with same payload, then try sanitize
+    # Generic 400 retry: retry once with same payload
     if resp.status_code == 400:
         log.info(f"[400-retry] Got 400 for {model} on {provider_id}, retrying")
         resp = await client.request("POST", url, headers=headers, content=body)
@@ -280,6 +284,153 @@ def _resolve_and_check(model_id: str, key_info: dict, error_format: str = "opena
     return provider, None
 
 
+
+
+# ── Anthropic Bridge (OpenAI ↔ Anthropic format conversion) ──
+
+
+async def _handle_anthropic_bridge_non_stream(
+    client, provider, body, req_data, key_info, original_req_data,
+):
+    """Proxy OpenAI request via Anthropic format provider, convert response back."""
+    from .format_converter import anthropic_to_openai
+    from .usage import record_usage
+
+    url = f"{provider['base_url']}{provider['chat_endpoint']}"
+    headers = {"content-type": "application/json", "anthropic-version": "2023-06-01"}
+    api_key = provider.get("api_key", "")
+    if provider.get("auth_header") == "x-api-key":
+        headers["x-api-key"] = api_key
+    else:
+        headers["authorization"] = f"Bearer {api_key}"
+
+    model = req_data.get("model", "")
+    pid = provider.get("_id", "")
+
+    resp = await client.request("POST", url, headers=headers, content=body)
+
+    # Generic 400 retry
+    if resp.status_code == 400:
+        log.info(f"[anthropic-bridge] Got 400 for {model} on {pid}, retrying")
+        resp = await client.request("POST", url, headers=headers, content=body)
+        if resp.status_code == 200:
+            log.info(f"[anthropic-bridge] Retry succeeded for {model}")
+
+    if resp.status_code != 200:
+        try:
+            error_data = resp.json()
+        except Exception:
+            error_data = {"error": {"message": resp.text, "type": "upstream_error"}}
+        return JSONResponse(content=error_data, status_code=resp.status_code)
+
+    resp_data = resp.json()
+    openai_resp = anthropic_to_openai(resp_data, model)
+
+    usage = resp_data.get("usage", {})
+    record_usage(
+        key_info.get("api_key", ""),
+        usage.get("input_tokens", 0),
+        usage.get("output_tokens", 0),
+        model,
+    )
+
+    return JSONResponse(content=openai_resp)
+
+
+async def _handle_anthropic_bridge_stream(
+    client, provider, body, req_data, key_info, original_req_data,
+):
+    """Proxy OpenAI streaming request via Anthropic format, convert SSE back."""
+    from .format_converter import anthropic_stream_to_openai_stream
+    from .usage import record_usage
+
+    url = f"{provider['base_url']}{provider['chat_endpoint']}"
+    headers = {"content-type": "application/json", "anthropic-version": "2023-06-01"}
+    api_key = provider.get("api_key", "")
+    if provider.get("auth_header") == "x-api-key":
+        headers["x-api-key"] = api_key
+    else:
+        headers["authorization"] = f"Bearer {api_key}"
+
+    model = req_data.get("model", "")
+    pid = provider.get("_id", "")
+
+    upstream_resp = await client.send(
+        client.build_request("POST", url, headers=headers, content=body),
+        stream=True,
+    )
+
+    if upstream_resp.status_code != 200:
+        error_body = await upstream_resp.aread()
+        await upstream_resp.aclose()
+
+        # Generic 400 retry
+        if upstream_resp.status_code == 400:
+            log.info(f"[anthropic-bridge] Got 400 (stream) for {model} on {pid}, retrying")
+            retry_req = client.build_request("POST", url, headers=headers, content=body)
+            upstream_resp = await client.send(retry_req, stream=True)
+            if upstream_resp.status_code != 200:
+                error2 = await upstream_resp.aread()
+                await upstream_resp.aclose()
+                try:
+                    return JSONResponse(content=json.loads(error2), status_code=upstream_resp.status_code)
+                except Exception:
+                    return JSONResponse(
+                        content={"error": {"message": error2.decode(errors="replace")}},
+                        status_code=upstream_resp.status_code,
+                    )
+        else:
+            try:
+                return JSONResponse(content=json.loads(error_body), status_code=upstream_resp.status_code)
+            except Exception:
+                return JSONResponse(
+                    content={"error": {"message": error_body.decode(errors="replace")}},
+                    status_code=upstream_resp.status_code,
+                )
+
+    async def stream_generator():
+        usage_data = {}
+        async for line in upstream_resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = line[6:].strip()
+            if data == "[DONE]":
+                yield "data: [DONE]\n\n"
+                break
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+
+            openai_chunk = anthropic_stream_to_openai_stream(event, model)
+            if openai_chunk:
+                yield f"data: {json.dumps(openai_chunk)}\n\n"
+
+            # Collect usage from message_delta
+            if event.get("type") == "message_delta":
+                u = event.get("usage", {})
+                if u:
+                    usage_data = u
+            elif event.get("type") == "message_start":
+                u = event.get("message", {}).get("usage", {})
+                if u:
+                    usage_data.update(u)
+
+        await upstream_resp.aclose()
+        record_usage(
+            key_info.get("api_key", ""),
+            usage_data.get("input_tokens", 0),
+            usage_data.get("output_tokens", 0),
+            model,
+        )
+
+    return StreamingResponse(
+        stream_generator(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+    )
+
+
 # ── Route Handlers ──
 
 
@@ -322,20 +473,30 @@ async def post_chat_completions(
     model_id = req_data.get("model", "")
     log.info(f"[openai] Request for model: {model_id}")
 
+    # Try openai provider first, fall back to anthropic
     provider, error = _resolve_and_check(model_id, key_info, "openai")
     if error:
-        return error
-    if provider.get("format") != "openai":
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "message": f"Model '{model_id}' uses {provider.get('format')} format. Use /v1/messages.",
-                    "type": "invalid_request_error",
-                    "code": "wrong_endpoint",
-                }
-            },
-        )
+        # Try anthropic provider (e.g. aiberm-claude)
+        provider, error2 = _resolve_and_check(model_id, key_info, "anthropic")
+        if error2:
+            return error  # Return original error
+
+    if provider.get("format") == "anthropic":
+        # Convert OpenAI → Anthropic, proxy, convert back
+        from .format_converter import openai_to_anthropic, anthropic_to_openai, anthropic_stream_to_openai_stream
+        anthropic_req = openai_to_anthropic(req_data)
+        anthropic_body = json.dumps(anthropic_req).encode("utf-8")
+        if is_stream:
+            return await _handle_anthropic_bridge_stream(
+                request.app.state.http_client, provider, anthropic_body, anthropic_req,
+                key_info, req_data,
+            )
+        else:
+            return await _handle_anthropic_bridge_non_stream(
+                request.app.state.http_client, provider, anthropic_body, anthropic_req,
+                key_info, req_data,
+            )
+
     return await _proxy_to_upstream(
         provider, request, body, req_data, key_info, is_stream, "openai"
     )
