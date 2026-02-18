@@ -1,14 +1,22 @@
-"""Sanitize tool history for Aiberm Claude models.
+"""Tool history sanitizer — DISABLED.
 
-Aiberm cannot handle tool_use/tool_result in message history for Claude models.
-Both OpenAI format (/v1/chat/completions) and Anthropic format (/v1/messages)
-return 400 "Input is too long" when tool_calls appear in conversation history.
+This module was designed to convert tool_calls/tool_result in message history
+into plain text summaries for providers that cannot handle them (e.g. Aiberm
+with Claude models).
 
-First tool call works fine (tools definition + user message). Only historical
-tool interactions trigger the bug. GPT models are unaffected.
+DISABLED because sanitization causes an infinite loop:
+1. Aiberm returns 400 for requests with tool history
+2. Sanitizer converts tool history to text summaries like
+   "[Previously executed exec — args: ...]"
+3. Claude sees these text summaries and does NOT recognize them as
+   previously executed tools
+4. Claude re-invokes the exact same tools
+5. New tool results get added to history → next request has tool history
+   → Aiberm 400 again → sanitize again → loop forever
 
-This module converts tool interactions in message history into plain text
-summaries, preserving the tools definition so new tool calls still work.
+The generic 400 retry (same payload) is kept for transient errors.
+If the retry also fails, the 400 propagates to the caller (OpenClaw gateway),
+which triggers fallback to the next model in the chain.
 """
 import logging
 
@@ -16,127 +24,10 @@ log = logging.getLogger("api-proxy")
 
 
 def needs_tool_sanitization(provider_id: str, model: str, req_data: dict) -> bool:
-    """Check if request needs tool history sanitization on 400 retry.
-
-    Only called when upstream returns 400 — NOT on first request.
-    This avoids the infinite loop problem (Claude seeing sanitized text
-    and re-invoking tools) while still handling Aiberm intermittent 400s.
-    """
-    if not isinstance(model, str) or not isinstance(req_data.get("messages", None), list):
-        return False
-    is_aiberm = "aiberm" in str(provider_id).lower()
-    is_claude = "claude" in model.lower()
-    has_tools = any(
-        isinstance(m, dict) and (m.get("role") == "tool" or m.get("tool_calls"))
-        for m in req_data.get("messages", [])
-    )
-    return is_aiberm and is_claude and has_tools
+    """Always returns False — sanitization is permanently disabled."""
+    return False
 
 
 def sanitize_tool_history(req_data: dict) -> dict:
-    """Convert tool_calls/tool messages into plain text summaries.
-
-    Preserves the tools definition so the model can still make new tool calls.
-    Only historical tool interactions are converted to text.
-    """
-    result = req_data.copy()
-    messages = req_data.get("messages", [])
-    sanitized = []
-
-    i = 0
-    while i < len(messages):
-        msg = messages[i]
-        role = msg.get("role", "")
-
-        if role in ("system", "user"):
-            sanitized.append(msg.copy())
-            i += 1
-            continue
-
-        if role == "assistant" and msg.get("tool_calls"):
-            tool_calls = msg.get("tool_calls", [])
-            text_parts = []
-
-            # Preserve any text content from the assistant message
-            content = msg.get("content")
-            if content:
-                if isinstance(content, str) and content.strip():
-                    text_parts.append(content)
-                elif isinstance(content, list):
-                    for c in content:
-                        if isinstance(c, dict) and c.get("type") == "text" and c.get("text", "").strip():
-                            text_parts.append(c["text"])
-
-            # Summarize each tool call and its result
-            for tc in tool_calls:
-                func = tc.get("function", {})
-                name = func.get("name", "unknown")
-                raw_args = func.get("arguments", "{}")
-                args = raw_args if isinstance(raw_args, str) else str(raw_args)
-                tc_id = tc.get("id", "")
-
-                # Find matching tool result in subsequent messages
-                tool_result = ""
-                for j in range(i + 1, min(i + len(tool_calls) + 2, len(messages))):
-                    if messages[j].get("role") == "tool" and messages[j].get("tool_call_id") == tc_id:
-                        tr_content = messages[j].get("content", "")
-                        if isinstance(tr_content, list):
-                            tr_content = "\n".join(
-                                c.get("text", "") for c in tr_content if isinstance(c, dict)
-                            )
-                        tool_result = str(tr_content)[:500]
-                        break
-
-                text_parts.append(f"[Previously executed {name} — args: {args[:200]}]")
-                if tool_result:
-                    text_parts.append(f"[Output was: {tool_result}]")
-
-            sanitized.append({
-                "role": "assistant",
-                "content": "\n".join(text_parts) if text_parts else "[Used tools]"
-            })
-
-            # Skip the subsequent tool result messages
-            i += 1
-            while i < len(messages) and messages[i].get("role") == "tool":
-                i += 1
-            continue
-
-        if role == "assistant":
-            sanitized.append(msg.copy())
-            i += 1
-            continue
-
-        if role == "tool":
-            # Orphan tool result (no preceding assistant with tool_calls)
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                content = "\n".join(
-                    c.get("text", "") for c in content if isinstance(c, dict)
-                )
-            sanitized.append({
-                "role": "user",
-                "content": f"[Earlier tool output: {str(content)[:500]}]"
-            })
-            i += 1
-            continue
-
-        # Unknown role, pass through
-        sanitized.append(msg)
-        i += 1
-
-    # Merge consecutive same-role messages (required by some APIs)
-    merged = []
-    for msg in sanitized:
-        if merged and merged[-1].get("role") == msg.get("role"):
-            prev = merged[-1].get("content", "")
-            curr = msg.get("content", "")
-            if isinstance(prev, str) and isinstance(curr, str):
-                merged[-1]["content"] = prev + "\n" + curr
-            else:
-                merged.append(msg)
-        else:
-            merged.append(msg)
-
-    result["messages"] = merged
-    return result
+    """No-op — returns input unchanged. Kept for interface compatibility."""
+    return req_data

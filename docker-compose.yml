@@ -4,7 +4,7 @@ services:
     container_name: api-proxy
     restart: unless-stopped
     ports:
-      - "8180:8180"
+      - "127.0.0.1:8180:8180"
     volumes:
       - ./keys.json:/app/keys.json:rw
       - ./models.json:/app/models.json:ro

@@ -136,26 +136,7 @@ async def _handle_stream(
             else:
                 await upstream_resp.aread()
                 await upstream_resp.aclose()
-                # Second chance: sanitize tool history if applicable
-                from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
-                if needs_tool_sanitization(provider_id, model_name, req_data or {}):
-                    log.info("[400-retry] Retrying with sanitized tool history")
-                    try:
-                        sanitized = sanitize_tool_history(req_data)
-                        retry_body = json.dumps(sanitized).encode("utf-8")
-                        retry_req2 = client.build_request("POST", url, headers=headers, content=retry_body)
-                        upstream_resp = await client.send(retry_req2, stream=True)
-                        if upstream_resp.status_code == 200:
-                            log.info(f"[400-retry] Sanitized retry succeeded for {model_name}")
-                        else:
-                            error2 = await upstream_resp.aread()
-                            await upstream_resp.aclose()
-                            return JSONResponse(content=_parse_error(error2), status_code=upstream_resp.status_code)
-                    except Exception as e:
-                        log.warning(f"[400-retry] Sanitize failed: {e}")
-                        return JSONResponse(content=_parse_error(error_body), status_code=400)
-                else:
-                    return JSONResponse(content=_parse_error(error_body), status_code=orig_status)
+                return JSONResponse(content=_parse_error(error_body), status_code=orig_status)
         else:
             return JSONResponse(content=_parse_error(error_body), status_code=orig_status)
 
@@ -235,21 +216,6 @@ async def _handle_non_stream(
         resp = await client.request("POST", url, headers=headers, content=body)
         if resp.status_code == 200:
             log.info(f"[400-retry] Retry succeeded for {model}")
-        else:
-            # Second chance: sanitize tool history if applicable
-            from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
-            if needs_tool_sanitization(provider_id, model, req_data or {}):
-                log.info("[400-retry] Retrying with sanitized tool history")
-                try:
-                    sanitized = sanitize_tool_history(req_data)
-                    retry_body = json.dumps(sanitized).encode("utf-8")
-                    resp = await client.request("POST", url, headers=headers, content=retry_body)
-                    if resp.status_code == 200:
-                        log.info(f"[400-retry] Sanitized retry succeeded for {model}")
-                    else:
-                        log.warning(f"[400-retry] All retries failed: {resp.status_code}")
-                except Exception as e:
-                    log.warning(f"[400-retry] Sanitize failed: {e}")
 
     try:
         resp_data = resp.json()
