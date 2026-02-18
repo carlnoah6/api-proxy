@@ -24,16 +24,15 @@ def needs_tool_sanitization(provider_id: str, model: str, req_data: dict) -> boo
     """
     if provider_id != "aiberm":
         return False
-    model_lower = model.lower()
-    if "claude" not in model_lower:
+    if not isinstance(model, str) or "claude" not in model.lower():
         return False
-    # Only sanitize if there are actual tool messages in history
-    messages = req_data.get("messages", [])
-    has_tools = any(
-        m.get("role") == "tool" or m.get("tool_calls")
+    messages = req_data.get("messages") if isinstance(req_data, dict) else None
+    if not isinstance(messages, list):
+        return False
+    return any(
+        isinstance(m, dict) and (m.get("role") == "tool" or m.get("tool_calls"))
         for m in messages
     )
-    return has_tools
 
 
 def sanitize_tool_history(req_data: dict) -> dict:
