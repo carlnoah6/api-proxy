@@ -139,7 +139,7 @@ async def _handle_stream(
                 # Second chance: sanitize tool history if applicable
                 from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
                 if needs_tool_sanitization(provider_id, model_name, req_data or {}):
-                    log.info(f"[400-retry] Retrying with sanitized tool history")
+                    log.info("[400-retry] Retrying with sanitized tool history")
                     try:
                         sanitized = sanitize_tool_history(req_data)
                         retry_body = json.dumps(sanitized).encode("utf-8")
@@ -239,7 +239,7 @@ async def _handle_non_stream(
             # Second chance: sanitize tool history if applicable
             from .tool_sanitizer import needs_tool_sanitization, sanitize_tool_history
             if needs_tool_sanitization(provider_id, model, req_data or {}):
-                log.info(f"[400-retry] Retrying with sanitized tool history")
+                log.info("[400-retry] Retrying with sanitized tool history")
                 try:
                     sanitized = sanitize_tool_history(req_data)
                     retry_body = json.dumps(sanitized).encode("utf-8")
