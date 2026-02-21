@@ -185,18 +185,33 @@
     },
     {
       "id": "claude-opus-4-6-thinking",
-      "provider": "aiberm",
+      "provider": "aiberm-claude",
       "owned_by": "anthropic"
     },
     {
       "id": "claude-sonnet-4-5",
-      "provider": "aiberm",
+      "provider": "aiberm-claude",
       "owned_by": "anthropic"
     },
     {
       "id": "grok-4.1-fast-reasoning",
       "provider": "aiberm",
       "owned_by": "xai"
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-pro-image-preview-2k",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "provider": "aiberm",
+      "owned_by": "google"
     }
   ]
 }
