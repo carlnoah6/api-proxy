@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from . import admin as admin_handlers
 from . import health as health_module
@@ -413,6 +413,48 @@ async def list_models(key_info: dict = Depends(require_api_key)):
             )
 
     return JSONResponse(content={"object": "list", "data": models})
+
+
+
+@app.post("/v1/embeddings")
+async def post_embeddings(request: Request, key_info: dict = Depends(require_api_key)):
+    """OpenAI Embeddings API — proxy to upstream."""
+    body = await request.body()
+    req_data = json.loads(body) if body else {}
+    model_id = req_data.get("model", "")
+    log.info(f"[embedding] Request for model: {model_id}")
+
+    # Resolve provider (embedding models route through aiberm)
+    provider, error = _resolve_and_check(model_id, key_info, "openai")
+    if error:
+        return error
+
+    # Build upstream request
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    upstream_url = f"{provider['base_url']}/embeddings"
+    headers = {"content-type": "application/json"}
+    api_key = provider.get("api_key", "")
+    auth_header = provider.get("auth_header", "authorization_bearer")
+    if auth_header == "x-api-key":
+        headers["x-api-key"] = api_key
+    else:
+        headers["authorization"] = f"Bearer {api_key}"
+
+    resp = await http_client.post(upstream_url, headers=headers, content=body, timeout=60.0)
+    resp_body = await resp.aread()
+
+    # Track usage
+    if resp.status_code == 200:
+        try:
+            resp_data = json.loads(resp_body)
+            tokens = resp_data.get("usage", {}).get("total_tokens", 0)
+            from .usage import record_usage
+            record_usage(key_info, model_id, input_tokens=tokens, output_tokens=0)
+        except Exception:
+            pass
+
+    return Response(content=resp_body, status_code=resp.status_code,
+                    media_type="application/json")
 
 
 # ── Admin + Health routes ──
