@@ -448,13 +448,15 @@ async def post_embeddings(request: Request, key_info: dict = Depends(require_api
         try:
             resp_data = json.loads(resp_body)
             tokens = resp_data.get("usage", {}).get("total_tokens", 0)
-            from .usage import record_usage
-            record_usage(key_info, model_id, input_tokens=tokens, output_tokens=0)
+            record_usage(key_info["key"], tokens, 0, model_id)
         except Exception:
             pass
 
-    return Response(content=resp_body, status_code=resp.status_code,
-                    media_type="application/json")
+    return Response(
+        content=resp_body,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+    )
 
 
 # ── Admin + Health routes ──

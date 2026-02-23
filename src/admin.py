@@ -299,9 +299,9 @@ async def oauth_callback_get(code: str = None, state: str = None):
 async def admin_pricing(request: Request):
     """Fetch and return model pricing from Aiberm with computed costs."""
     require_admin(request)
-    
+
     import httpx
-    
+
     aiberm_key = os.environ.get("AIBERM_API_KEY", "")
     if not aiberm_key:
         # Try loading from models.json
@@ -314,10 +314,10 @@ async def admin_pricing(request: Request):
             aiberm_key = os.environ.get(env_var, "")
         except Exception:
             pass
-    
+
     if not aiberm_key:
         raise HTTPException(status_code=500, detail="Aiberm API key not configured")
-    
+
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://aiberm.com/api/pricing",
@@ -327,10 +327,10 @@ async def admin_pricing(request: Request):
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Aiberm pricing API returned {resp.status_code}")
         raw = resp.json()
-    
+
     group_ratio = raw.get("group_ratio", {})
     default_group = group_ratio.get("default", 1.0)
-    
+
     # Build pricing list — keep all models with original names (including vendor prefix)
     models = []
     seen = set()
@@ -339,12 +339,12 @@ async def admin_pricing(request: Request):
         if name in seen:
             continue
         seen.add(name)
-        
+
         vendor = name.split("/", 1)[0] if "/" in name else ""
         canonical = name.split("/", 1)[1] if "/" in name else name
         mr = m.get("model_ratio", 0)
         cr = m.get("completion_ratio", 1)
-        
+
         models.append({
             "model": name,
             "canonical": canonical,
@@ -357,9 +357,9 @@ async def admin_pricing(request: Request):
             "supported_endpoints": m.get("supported_endpoint_types", []),
             "enable_groups": m.get("enable_groups", []),
         })
-    
+
     models.sort(key=lambda x: x["input_cost_per_ratio_unit"])
-    
+
     return {
         "success": True,
         "group_ratios": group_ratio,
