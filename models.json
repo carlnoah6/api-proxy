@@ -134,6 +134,9 @@
     ],
     "xiaomi": [
       "aiberm"
+    ],
+    "text-embedding": [
+      "aiberm"
     ]
   },
   "known_models": [
@@ -206,6 +209,221 @@
       "id": "grok-4.1-fast-reasoning",
       "provider": "aiberm",
       "owned_by": "xai"
+    },
+    {
+      "id": "minimax-m2.5",
+      "provider": "aiberm",
+      "owned_by": "minimax"
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-haiku-4-5-20251001-thinking",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-opus-4-5-20251101",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-opus-4-5-20251101-thinking",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-opus-4-6",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929-thinking",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "claude-sonnet-4-6-thinking",
+      "provider": "aiberm-claude",
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "deepseek-r1",
+      "provider": "aiberm",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "deepseek-r1-0528",
+      "provider": "aiberm",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "deepseek-v3.2",
+      "provider": "aiberm",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "deepseek-v3.2-exp",
+      "provider": "aiberm",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "deepseek-v3.2-exp-thinking",
+      "provider": "aiberm",
+      "owned_by": "deepseek"
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-flash-preview-thinking",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-pro-image-preview-2k",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-pro-preview",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3-pro-preview-thinking",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gemini-3.1-pro-preview-thinking",
+      "provider": "aiberm",
+      "owned_by": "google"
+    },
+    {
+      "id": "gpt-4.1",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-4.1-mini",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-4.1-nano",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5-codex-high",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5-mini",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5-nano",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5.1",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5.1-codex",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5.1-codex-high",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5.2",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5.2-chat-latest",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "grok-4-1-fast-reasoning",
+      "provider": "aiberm",
+      "owned_by": "xai"
+    },
+    {
+      "id": "grok-code-fast-1",
+      "provider": "aiberm",
+      "owned_by": "xai"
+    },
+    {
+      "id": "kimi-k2.5-thinking",
+      "provider": "aiberm",
+      "owned_by": "moonshot"
+    },
+    {
+      "id": "mimo-v2-flash",
+      "provider": "aiberm",
+      "owned_by": "xiaomi"
+    },
+    {
+      "id": "minimax-m2.1",
+      "provider": "aiberm",
+      "owned_by": "minimax"
+    },
+    {
+      "id": "text-embedding-3-large",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "text-embedding-3-small",
+      "provider": "aiberm",
+      "owned_by": "openai"
+    },
+    {
+      "id": "text-embedding-ada-002",
+      "provider": "aiberm",
+      "owned_by": "openai"
     }
   ]
 }
